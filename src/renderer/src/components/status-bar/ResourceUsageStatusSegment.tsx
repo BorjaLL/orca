@@ -987,11 +987,6 @@ export function ResourceUsageStatusSegment({
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
             <MemoryStick className="size-3 text-muted-foreground" />
             <span>Resource Usage</span>
-            {orphanCount > 0 && (
-              <span className="ml-1 text-yellow-500 tabular-nums" aria-live="polite">
-                {orphanCount} orphan{orphanCount === 1 ? '' : 's'}
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-0.5">
@@ -1063,50 +1058,57 @@ export function ResourceUsageStatusSegment({
         )}
 
         {snapshot && (
-          <div className="px-3 py-2 border-b border-border flex items-baseline gap-3 text-xs tabular-nums">
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <span
-                  tabIndex={0}
-                  className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
-                >
-                  {formatCpu(totalCpu)}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
-                Combined CPU load. Values above 100% mean more than one core is working at once.
-              </TooltipContent>
-            </Tooltip>
-            <span className="text-muted-foreground/50">·</span>
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <span
-                  tabIndex={0}
-                  className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
-                >
-                  {formatMemory(totalMemory)}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
-                Resident memory held by Orca plus the processes under each worktree&apos;s
-                terminals.
-              </TooltipContent>
-            </Tooltip>
-            <span className="text-muted-foreground/50">·</span>
-            <Tooltip delayDuration={200}>
-              <TooltipTrigger asChild>
-                <span
-                  tabIndex={0}
-                  className="text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
-                >
-                  {formatPercent(hostShare)} of system RAM
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
-                How much of this machine&apos;s physical RAM the Orca-tracked processes are sitting
-                on.
-              </TooltipContent>
-            </Tooltip>
+          <div className="px-3 py-2 border-b border-border flex items-baseline justify-between gap-3 text-xs tabular-nums">
+            <div className="flex items-baseline gap-3 min-w-0">
+              <Tooltip delayDuration={200}>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
+                  >
+                    {formatCpu(totalCpu)}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
+                  Combined CPU load. Values above 100% mean more than one core is working at once.
+                </TooltipContent>
+              </Tooltip>
+              <span className="text-muted-foreground/50">·</span>
+              <Tooltip delayDuration={200}>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    className="font-medium text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
+                  >
+                    {formatMemory(totalMemory)}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
+                  Resident memory held by Orca plus the processes under each worktree&apos;s
+                  terminals.
+                </TooltipContent>
+              </Tooltip>
+              <span className="text-muted-foreground/50">·</span>
+              <Tooltip delayDuration={200}>
+                <TooltipTrigger asChild>
+                  <span
+                    tabIndex={0}
+                    className="text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:rounded"
+                  >
+                    {formatPercent(hostShare)} of system RAM
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="z-[70] max-w-xs">
+                  How much of this machine&apos;s physical RAM the Orca-tracked processes are
+                  sitting on.
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            {orphanCount > 0 && (
+              <span className="shrink-0 text-yellow-500" aria-live="polite">
+                {orphanCount} orphan{orphanCount === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
         )}
 
