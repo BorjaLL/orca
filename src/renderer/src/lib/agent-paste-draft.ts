@@ -1,4 +1,5 @@
 import type { TuiAgent } from '../../../shared/types'
+import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { detectAgentStatusFromTitle } from '../../../shared/agent-detection'
 import { isShellProcess } from '@/lib/tui-agent-startup'
 import { useAppStore } from '@/store'
@@ -36,9 +37,12 @@ const READINESS_TIMEOUT_MS = 12000
  * `onTimeout` lets the caller surface a UI hint (e.g. toast) when the agent
  * doesn't reach a ready state inside `timeoutMs`.
  *
- * `agent` is currently informational only — kept on the call signature so
- * future per-agent specializations (e.g. an `unsupported` opt-out) have a
- * place to land without retouching every call site.
+ * Some agents (Copilot, cursor-agent) gate first-run launches behind a
+ * trust/permission menu that captures any keystroke as menu input. Those
+ * agents set `skipDraftUrlInjection: true` in TUI_AGENT_CONFIG and this
+ * helper returns false without touching the PTY for them — the workspace
+ * still opens cleanly, the user just types/pastes the URL themselves once
+ * past the menu.
  */
 export async function pasteDraftWhenAgentReady(args: {
   tabId: string
@@ -48,7 +52,11 @@ export async function pasteDraftWhenAgentReady(args: {
   timeoutMs?: number
   onTimeout?: () => void
 }): Promise<boolean> {
-  const { tabId, expectedProcess, content, timeoutMs, onTimeout } = args
+  const { tabId, expectedProcess, content, agent, timeoutMs, onTimeout } = args
+
+  if (agent && TUI_AGENT_CONFIG[agent].skipDraftUrlInjection) {
+    return false
+  }
 
   const ready = await waitForTuiInputReady(tabId, expectedProcess, {
     timeoutMs: timeoutMs ?? READINESS_TIMEOUT_MS

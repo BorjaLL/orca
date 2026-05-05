@@ -12,6 +12,13 @@ export type TuiAgentConfig = {
   launchCmd: string
   expectedProcess: string
   promptInjectionMode: AgentPromptInjectionMode
+  /** Why: Copilot and Cursor-Agent open with a "do you trust this folder?"
+   * permission prompt that consumes any keystrokes (including bracketed
+   * paste) as menu input. There's no reliable signal for "trust prompt
+   * dismissed" from outside the TUI, so the safest behavior is to skip the
+   * draft URL pre-fill for these agents — the workspace still opens, the
+   * user just types/pastes the URL themselves once they're past the menu. */
+  skipDraftUrlInjection?: boolean
 }
 
 // Why: the new-workspace handoff depends on three pieces of per-agent
@@ -122,7 +129,13 @@ export const TUI_AGENT_CONFIG: Record<TuiAgent, TuiAgentConfig> = {
     detectCmd: 'cursor-agent',
     launchCmd: 'cursor-agent',
     expectedProcess: 'cursor-agent',
-    promptInjectionMode: 'argv'
+    promptInjectionMode: 'argv',
+    // Why: cursor-agent opens with a "Do you trust this directory?" prompt
+    // that consumes typed input as menu shortcuts ([a]/[w]/[q]). Pasting the
+    // URL while the menu is up either selects an option or quits — neither
+    // is helpful. Skip the draft pre-fill until/unless we have a reliable
+    // signal that the trust menu has been dismissed.
+    skipDraftUrlInjection: true
   },
   droid: {
     detectCmd: 'droid',
@@ -168,6 +181,11 @@ export const TUI_AGENT_CONFIG: Record<TuiAgent, TuiAgentConfig> = {
     // completion, which would kill the TUI session Orca is hosting.
     // `-i/--interactive <prompt>` starts an interactive session with the
     // initial prompt pre-executed — the behavior Orca needs.
-    promptInjectionMode: 'flag-interactive'
+    promptInjectionMode: 'flag-interactive',
+    // Why: Copilot's first-launch trust prompt ("Do you trust the files in
+    // this folder?") consumes any keystrokes as numbered-menu input. A
+    // pasted URL either picks an option or fails the menu validation. Skip
+    // the draft pre-fill — same reasoning as cursor-agent above.
+    skipDraftUrlInjection: true
   }
 }
