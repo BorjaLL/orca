@@ -106,7 +106,11 @@ async function pasteWorkItemDraftWhenAgentReady(args: {
     expectedProcess: startupPlan.expectedProcess,
     content,
     agent: startupPlan.agent,
-    timeoutMs: 5000,
+    // Why: 12s budget covers slow-starting TUIs (OpenCode needs ~3s before
+    // its input box accepts pastes; the readiness logic in agent-paste-draft
+    // adds polling + grace on top). 5s was too tight and caused the toast to
+    // surface even when the agent went on to render correctly a second later.
+    timeoutMs: 12000,
     onTimeout: () =>
       toast.message(
         'Agent took too long to start. The workspace is ready — paste the issue URL when the agent is idle.'

@@ -46,31 +46,27 @@ export const TUI_AGENT_CONFIG: Record<TuiAgent, TuiAgentConfig> = {
     detectCmd: 'codex',
     launchCmd: 'codex',
     expectedProcess: 'codex',
-    promptInjectionMode: 'argv',
-    // Why: Codex emits `\x1b[?2004h` (bracketed paste mode) almost instantly
-    // on launch, but the input box only becomes editable after the splash /
-    // model-readiness phase. Use the longer-settle variant so the URL paste
-    // arrives after the input is actually accepting drafts.
-    draftInjectionStrategy: 'bracketed-paste-slow'
+    promptInjectionMode: 'argv'
+    // Default 'bracketed-paste'. The TUI ready-wait in agent-paste-draft.ts
+    // already absorbs Codex's splash by requiring stable non-shell foreground
+    // for ≥1.5s before pasting; no agent-specific override needed.
   },
   opencode: {
     detectCmd: 'opencode',
     launchCmd: 'opencode',
     expectedProcess: 'opencode',
-    promptInjectionMode: 'flag-prompt',
-    // Why: OpenCode's Bubble Tea TUI is conservative about treating pastes as
-    // drafts; per-character typing lands more reliably across versions.
-    draftInjectionStrategy: 'type-chars'
+    promptInjectionMode: 'flag-prompt'
+    // Default 'bracketed-paste'. Empirical timing shows OpenCode needs ~3s
+    // before its input accepts pastes — the readiness floor in
+    // agent-paste-draft.ts is calibrated for that.
   },
   pi: {
     detectCmd: 'pi',
     launchCmd: 'pi',
     expectedProcess: 'pi',
-    promptInjectionMode: 'argv',
-    // Why: Pi's titlebar/spinner extension owns input mode aggressively and
-    // historically swallows bracketed-paste markers. Type each character so
-    // the URL appears as if the user typed it.
-    draftInjectionStrategy: 'type-chars'
+    promptInjectionMode: 'argv'
+    // Default 'bracketed-paste'. Pi sets a `π - <user>` title once its TUI
+    // is rendered, which the title-idle path matches in <2s.
   },
   gemini: {
     detectCmd: 'gemini',
