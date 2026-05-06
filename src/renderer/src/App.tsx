@@ -339,7 +339,7 @@ function App(): React.JSX.Element {
           // until the user gets a clean restart, so we don't overwrite the
           // on-disk file we failed to load.
           try {
-            await actions.reconnectPersistedTerminals()
+            await actions.reconnectPersistedTerminals(abortController.signal)
           } catch (reconnectErr) {
             console.error(
               '[startup] reconnectPersistedTerminals failed in error path:',
