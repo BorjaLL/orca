@@ -25,6 +25,7 @@ export function buildOnboardingFolderAgentStartup(
     !settings ||
     !agent ||
     agent === 'blank' ||
+    typeof agent === 'object' ||
     !isTuiAgentEnabled(agent, settings.disabledTuiAgents)
   ) {
     return undefined

@@ -14,6 +14,7 @@ import {
   pickQuickWorkspaceAgent,
   resolveQuickWorkspaceAgentSelection
 } from '@/lib/quick-workspace-agent-selection'
+import { defaultBuiltinTuiAgent } from '@/lib/custom-agent-resolve'
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { shouldAllowComposerEnterSubmitTarget } from '@/lib/new-workspace-enter-guard'
 import { isScreenSubmitShortcut } from '@/lib/screen-submit-shortcut'
@@ -148,12 +149,28 @@ function QuickTabBody({
   const [quickAgentOverride, setQuickAgentOverride] = useState<TuiAgent | null | undefined>(
     undefined
   )
+  const [quickCustomAgentOverride, setQuickCustomAgentOverride] = useState<
+    string | null | undefined
+  >(undefined)
   const preferredQuickAgent = useMemo<TuiAgent | null>(() => {
-    const pref = settings?.defaultTuiAgent
     // Why: detection can still be pending when quick-create submits; keep the
     // prior catalog fallback while filtering disabled agents out of that choice.
-    return pickQuickWorkspaceAgent(pref, cardProps.detectedAgentIds, settings?.disabledTuiAgents)
-  }, [cardProps.detectedAgentIds, settings?.defaultTuiAgent, settings?.disabledTuiAgents])
+    // A custom-profile default resolves to its baseAgent for this built-in slot;
+    // the parallel customAgentId slot (below) carries the profile id.
+    return pickQuickWorkspaceAgent(
+      defaultBuiltinTuiAgent(settings),
+      cardProps.detectedAgentIds,
+      settings?.disabledTuiAgents
+    )
+  }, [cardProps.detectedAgentIds, settings])
+  const preferredQuickCustomAgentId = useMemo<string | null>(() => {
+    const pref = settings?.defaultTuiAgent
+    if (pref && typeof pref === 'object' && pref.kind === 'custom') {
+      const profile = (settings?.customAgents ?? []).find((p) => p.id === pref.id)
+      return profile ? profile.id : null
+    }
+    return null
+  }, [settings?.defaultTuiAgent, settings?.customAgents])
   const resolvedQuickAgentSelection = resolveQuickWorkspaceAgentSelection({
     quickAgentOverride,
     preferredQuickAgent,
@@ -166,14 +183,23 @@ function QuickTabBody({
     setQuickAgentOverride(resolvedQuickAgentSelection.quickAgentOverride)
   }
   const quickAgent = resolvedQuickAgentSelection.quickAgent
+  const quickCustomAgentId =
+    quickCustomAgentOverride === undefined ? preferredQuickCustomAgentId : quickCustomAgentOverride
 
   const handleQuickAgentChange = useCallback((agent: TuiAgent | null) => {
     setQuickAgentOverride(agent)
+    // Why: switching to a built-in or blank explicitly clears any active
+    // custom selection. Mirrors how onValueChange in AgentCombobox sends
+    // both updates together for a custom → builtin transition.
+    setQuickCustomAgentOverride(null)
+  }, [])
+  const handleQuickCustomAgentChange = useCallback((id: string | null) => {
+    setQuickCustomAgentOverride(id)
   }, [])
 
   const handleCreate = useCallback(async (): Promise<void> => {
-    await submitQuick(quickAgent)
-  }, [quickAgent, submitQuick])
+    await submitQuick(quickAgent, quickCustomAgentId)
+  }, [quickAgent, quickCustomAgentId, submitQuick])
   const primaryActionLabel = cardProps.selectedRepoIsGit ? 'Create Worktree' : 'Create Workspace'
 
   // Cmd/Ctrl+Enter submits, Esc first blurs the focused input (like the full page).
@@ -229,7 +255,11 @@ function QuickTabBody({
       <DialogHeader className="gap-1">
         <DialogTitle className="text-base font-semibold">{primaryActionLabel}</DialogTitle>
         <DialogDescription className="sr-only">
-          {translate("auto.components.NewWorkspaceComposerModal.fa90f739a5", "Choose the project, workspace name, and agent before creating the workspace.")}</DialogDescription>
+          {translate(
+            'auto.components.NewWorkspaceComposerModal.fa90f739a5',
+            'Choose the project, workspace name, and agent before creating the workspace.'
+          )}
+        </DialogDescription>
       </DialogHeader>
       <NewWorkspaceComposerCard
         contextualTourSource={modalData.contextualTourSource}
@@ -242,6 +272,8 @@ function QuickTabBody({
         nameInputRef={nameInputRef}
         quickAgent={quickAgent}
         onQuickAgentChange={handleQuickAgentChange}
+        quickCustomAgentId={quickCustomAgentId}
+        onQuickCustomAgentChange={handleQuickCustomAgentChange}
         {...cardProps}
         primaryActionLabel={primaryActionLabel}
         onOpenAgentSettings={() => setAgentSettingsOpen(true)}

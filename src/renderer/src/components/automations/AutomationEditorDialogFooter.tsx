@@ -209,10 +209,13 @@ export function AutomationEditorDialogFooter({
             >
               <AgentCombobox
                 agents={visibleAgents}
-                value={draft.agentId}
-                onValueChange={(agentId) =>
-                  agentId && onDraftChange((current) => ({ ...current, agentId }))
-                }
+                value={{ kind: 'builtin', agent: draft.agentId }}
+                onValueChange={(selection) => {
+                  const agentId = selection.kind === 'builtin' ? selection.agent : null
+                  if (agentId) {
+                    onDraftChange((current) => ({ ...current, agentId }))
+                  }
+                }}
                 defaultAgent={settings?.defaultTuiAgent ?? null}
                 triggerClassName={`h-9 w-full min-w-0 ${pickerTriggerClassName}`}
                 allowNarrowTrigger

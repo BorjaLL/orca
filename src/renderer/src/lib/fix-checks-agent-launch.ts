@@ -1,5 +1,6 @@
 import { toast } from 'sonner'
 import { getConnectionId } from '@/lib/connection-context'
+import { defaultBuiltinTuiAgent } from '@/lib/custom-agent-resolve'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import { findGithubPrWorkspaceAttachment } from '@/lib/github-work-item-workspace-attachment'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
@@ -67,7 +68,12 @@ async function resolveSavedAgentOverride(
   }
   const detectedAgents = await detectAgentsForConnection(connectionId)
   if (!isAgentAvailable(savedAgent, detectedAgents)) {
-    toast.error(translate("auto.lib.fix.checks.agent.launch.4c7f783a7a", "Saved checks agent is not available on this workspace host."))
+    toast.error(
+      translate(
+        'auto.lib.fix.checks.agent.launch.4c7f783a7a',
+        'Saved checks agent is not available on this workspace host.'
+      )
+    )
     return { kind: 'blocked' }
   }
   return { kind: 'agent', agent: savedAgent }
@@ -84,17 +90,27 @@ async function pickExistingWorktreeAgent(
     if (isAgentAvailable(savedAgent, detectedAgents)) {
       return savedAgent
     }
-    toast.error(translate("auto.lib.fix.checks.agent.launch.4c7f783a7a", "Saved checks agent is not available on this workspace host."))
+    toast.error(
+      translate(
+        'auto.lib.fix.checks.agent.launch.4c7f783a7a',
+        'Saved checks agent is not available on this workspace host.'
+      )
+    )
     return null
   }
   const settings = useAppStore.getState().settings
   const agent = pickSourceControlLaunchAgent({
-    defaultAgent: settings?.defaultTuiAgent,
+    defaultAgent: defaultBuiltinTuiAgent(settings),
     detectedAgents,
     disabledAgents: settings?.disabledTuiAgents
   })
   if (!agent) {
-    toast.error(translate("auto.lib.fix.checks.agent.launch.2ebf794906", "No enabled AI agent was detected on this workspace host."))
+    toast.error(
+      translate(
+        'auto.lib.fix.checks.agent.launch.2ebf794906',
+        'No enabled AI agent was detected on this workspace host.'
+      )
+    )
   }
   return agent
 }
@@ -113,7 +129,12 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
     { basePrompt: args.basePrompt }
   ).trim()
   if (!commandInput) {
-    toast.error(translate("auto.lib.fix.checks.agent.launch.9f00d7df0c", "Fix checks prompt is empty. Update Source Control AI settings."))
+    toast.error(
+      translate(
+        'auto.lib.fix.checks.agent.launch.9f00d7df0c',
+        'Fix checks prompt is empty. Update Source Control AI settings.'
+      )
+    )
     return false
   }
 
@@ -125,7 +146,12 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
   if (targetWorktreeId) {
     const targetWorktree = store.allWorktrees().find((worktree) => worktree.id === targetWorktreeId)
     if (!targetWorktree) {
-      toast.error(translate("auto.lib.fix.checks.agent.launch.dfb4dd7c00", "Unable to find the workspace attached to these checks."))
+      toast.error(
+        translate(
+          'auto.lib.fix.checks.agent.launch.dfb4dd7c00',
+          'Unable to find the workspace attached to these checks.'
+        )
+      )
       return false
     }
     const targetConnectionId = getConnectionId(targetWorktreeId) ?? repo?.connectionId ?? null
@@ -142,7 +168,12 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
       worktreePath: targetWorktree.path
     })
     if (!launchPlatform) {
-      toast.error(translate("auto.lib.fix.checks.agent.launch.822bf52295", "Unable to resolve the workspace launch platform."))
+      toast.error(
+        translate(
+          'auto.lib.fix.checks.agent.launch.822bf52295',
+          'Unable to resolve the workspace launch platform.'
+        )
+      )
       return false
     }
     const agentArgsPlan = planAgentCliArgsSuffix(
@@ -154,7 +185,12 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
       return false
     }
     if (!activateAndRevealWorktree(targetWorktreeId)) {
-      toast.error(translate("auto.lib.fix.checks.agent.launch.03c1d61f83", "Unable to open the workspace attached to these checks."))
+      toast.error(
+        translate(
+          'auto.lib.fix.checks.agent.launch.03c1d61f83',
+          'Unable to open the workspace attached to these checks.'
+        )
+      )
       return false
     }
     const result = launchAgentInNewTab({
@@ -168,7 +204,12 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
       launchSource: args.launchSource
     })
     if (!result) {
-      toast.error(translate("auto.lib.fix.checks.agent.launch.fb6c294e85", "Could not build the agent launch command."))
+      toast.error(
+        translate(
+          'auto.lib.fix.checks.agent.launch.fb6c294e85',
+          'Could not build the agent launch command.'
+        )
+      )
       return false
     }
     if (result.tabId) {
@@ -178,7 +219,12 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
   }
 
   if (!args.item || !args.openModalFallback) {
-    toast.error(translate("auto.lib.fix.checks.agent.launch.027228a06b", "Unable to find a workspace for these checks."))
+    toast.error(
+      translate(
+        'auto.lib.fix.checks.agent.launch.027228a06b',
+        'Unable to find a workspace for these checks.'
+      )
+    )
     return false
   }
 

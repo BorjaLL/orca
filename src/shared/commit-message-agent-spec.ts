@@ -609,7 +609,16 @@ export const DEFAULT_COMMIT_MESSAGE_AGENT_ID: TuiAgent = 'claude'
 export const CUSTOM_AGENT_ID = 'custom' as const
 export type CustomAgentId = typeof CUSTOM_AGENT_ID
 export type CommitMessageAgentChoice = TuiAgent | CustomAgentId
-export type DefaultTuiAgentPreference = TuiAgent | 'blank' | null | undefined
+// Why: mirrors GlobalSettings.defaultTuiAgent, which can be a custom-agent
+// profile reference. Source Control AI has its own agent model and ignores
+// custom PTY-launch profiles, so the resolver treats the custom case as "no
+// built-in default" and falls back to the standard commit-message agent.
+export type DefaultTuiAgentPreference =
+  | TuiAgent
+  | 'blank'
+  | { kind: 'custom'; id: string }
+  | null
+  | undefined
 
 export function isCustomAgentId(id: string | null | undefined): id is CustomAgentId {
   return id === CUSTOM_AGENT_ID
@@ -630,6 +639,7 @@ export function resolveCommitMessageAgentChoice(
   if (
     defaultTuiAgent &&
     defaultTuiAgent !== 'blank' &&
+    typeof defaultTuiAgent !== 'object' &&
     isTuiAgentEnabled(defaultTuiAgent, disabledTuiAgents)
   ) {
     return getCommitMessageAgentSpec(defaultTuiAgent) ? defaultTuiAgent : null

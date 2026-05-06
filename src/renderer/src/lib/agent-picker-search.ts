@@ -1,4 +1,5 @@
 import type { AgentCatalogEntry } from '@/lib/agent-catalog'
+import type { CustomAgentProfile } from '../../../shared/types'
 
 type RankedAgent = {
   agent: AgentCatalogEntry
@@ -179,4 +180,25 @@ function isBoundary(value: string, index: number): boolean {
 
 function normalizeSearchText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+export function searchCustomAgents(
+  customAgents: CustomAgentProfile[],
+  rawQuery: string
+): CustomAgentProfile[] {
+  const query = rawQuery.trim().toLowerCase()
+  if (!query) {
+    return customAgents
+  }
+  const matches: { profile: CustomAgentProfile; score: number; index: number }[] = []
+  customAgents.forEach((profile, index) => {
+    const labelIdx = profile.label.toLowerCase().indexOf(query)
+    const baseIdx = profile.baseAgent.toLowerCase().indexOf(query)
+    const score = labelIdx !== -1 ? labelIdx : baseIdx !== -1 ? 1000 + baseIdx : -1
+    if (score !== -1) {
+      matches.push({ profile, score, index })
+    }
+  })
+  matches.sort((a, b) => a.score - b.score || a.index - b.index)
+  return matches.map((m) => m.profile)
 }

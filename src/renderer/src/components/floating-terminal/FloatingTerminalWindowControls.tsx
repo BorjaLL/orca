@@ -35,6 +35,7 @@ export function FloatingTerminalWindowControls({
   const defaultAgent =
     defaultTuiAgent &&
     defaultTuiAgent !== 'blank' &&
+    typeof defaultTuiAgent !== 'object' &&
     isTuiAgentEnabled(defaultTuiAgent, disabledTuiAgents)
       ? defaultTuiAgent
       : null

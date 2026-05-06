@@ -236,7 +236,9 @@ export function useOnboardingFlow(
   )
   const [stepIndex, setStepIndex] = useState(initialStep)
   const [selectedAgent, setSelectedAgent] = useState<TuiAgent | null>(
-    settings?.defaultTuiAgent && settings.defaultTuiAgent !== 'blank'
+    settings?.defaultTuiAgent &&
+      settings.defaultTuiAgent !== 'blank' &&
+      typeof settings.defaultTuiAgent !== 'object'
       ? settings.defaultTuiAgent
       : null
   )

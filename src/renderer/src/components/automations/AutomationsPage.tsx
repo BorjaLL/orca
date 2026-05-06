@@ -278,6 +278,7 @@ export default function AutomationsPage(): React.JSX.Element {
   const defaultAgent =
     settings?.defaultTuiAgent &&
     settings.defaultTuiAgent !== 'blank' &&
+    typeof settings.defaultTuiAgent !== 'object' &&
     isTuiAgentEnabled(settings.defaultTuiAgent, settings.disabledTuiAgents)
       ? settings.defaultTuiAgent
       : (enabledAgents[0] ?? AGENTS[0])

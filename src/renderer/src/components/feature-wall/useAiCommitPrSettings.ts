@@ -75,7 +75,8 @@ export function useAiCommitPrSettings(): AiCommitPrSettingsViewModel {
     resolvedAgentId === null &&
     !config.agentId &&
     settings?.defaultTuiAgent &&
-    settings.defaultTuiAgent !== 'blank'
+    settings.defaultTuiAgent !== 'blank' &&
+    typeof settings.defaultTuiAgent !== 'object'
       ? settings.defaultTuiAgent
       : null
   const unsupportedDefaultAgentLabel = unsupportedDefaultAgent

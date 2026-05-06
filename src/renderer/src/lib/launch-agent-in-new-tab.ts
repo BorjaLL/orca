@@ -6,6 +6,7 @@ import {
   type AgentDraftLaunchPlan,
   type AgentStartupPlan
 } from '@/lib/tui-agent-startup'
+import { findCustomAgentProfile } from '@/lib/custom-agent-resolve'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { reconcileTabOrder } from '@/components/tab-bar/reconcile-order'
 import { track, tuiAgentToAgentKind } from '@/lib/telemetry'
@@ -47,6 +48,9 @@ export type LaunchAgentInNewTabArgs = {
   launchPlatform?: NodeJS.Platform
   /** Called after the prompt is actually delivered to the agent input path. */
   onPromptDelivered?: () => void
+  /** Optional custom-agent profile id. When set, the launch uses the
+   *  profile's command + env vars instead of the catalog default for `agent`. */
+  customAgentId?: string | null
 }
 
 function removeStaleLocalAgentTabsForWebHostLaunch(worktreeId: string): void {
@@ -131,15 +135,19 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     launchSource,
     quickCommandLabel,
     launchPlatform = CLIENT_PLATFORM,
-    onPromptDelivered
+    onPromptDelivered,
+    customAgentId = null
   } = args
   const store = useAppStore.getState()
   const cmdOverrides = store.settings?.agentCmdOverrides ?? {}
+  // Why: a custom profile replaces the catalog command + per-agent override
+  // for `agent`, carrying its own env shell prefix into every plan below.
+  const customProfile = findCustomAgentProfile(store.settings, customAgentId)
   const trimmedPrompt = prompt?.trim() ?? ''
   const hasPrompt = trimmedPrompt.length > 0
   const isFollowupPath = TUI_AGENT_CONFIG[agent].promptInjectionMode === 'stdin-after-start'
   // Why: argv/flag agents fold the prompt into the launch command and
-  // auto-submit — keeping behavior consistent with the composer/tab-bar `+`
+  // auto-submit, keeping behavior consistent with the composer/tab-bar `+`
   // mental model, where the prompt is "the first turn the user sent".
   // Followup-path and generated-context launches can deliver a prompt via
   // post-launch bracketed paste; callers decide whether that paste remains a
@@ -158,7 +166,8 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       cmdOverrides,
       platform: launchPlatform,
       agentArgs,
-      allowEmptyPromptLaunch: true
+      allowEmptyPromptLaunch: true,
+      customProfile
     })
     pasteDraftAfterLaunch = trimmedPrompt
     submitPastedPrompt = true
@@ -169,7 +178,8 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       draft: trimmedPrompt,
       cmdOverrides,
       platform: launchPlatform,
-      agentArgs
+      agentArgs,
+      customProfile
     })
     if (draftLaunchPlan && canUseInlineDraftLaunchPlan(draftLaunchPlan, launchPlatform)) {
       startupPlan = {
@@ -186,7 +196,8 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
         cmdOverrides,
         platform: launchPlatform,
         agentArgs,
-        allowEmptyPromptLaunch: true
+        allowEmptyPromptLaunch: true,
+        customProfile
       })
       pasteDraftAfterLaunch = trimmedPrompt
     }
@@ -197,7 +208,8 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       cmdOverrides,
       platform: launchPlatform,
       agentArgs,
-      allowEmptyPromptLaunch: true
+      allowEmptyPromptLaunch: true,
+      customProfile
     })
     pasteDraftAfterLaunch = trimmedPrompt
   } else {
@@ -207,7 +219,8 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       cmdOverrides,
       platform: launchPlatform,
       agentArgs,
-      allowEmptyPromptLaunch: !hasPrompt
+      allowEmptyPromptLaunch: !hasPrompt,
+      customProfile
     })
   }
 
@@ -232,7 +245,13 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       // exists; keep pruning stale local rows until the snapshot mirrors.
       removeStaleLocalAgentTabsForWebHostLaunch(worktreeId)
       if (!created) {
-        toast.error(translate("auto.lib.launch.agent.in.new.tab.11cce5cc77", "Could not launch {{value0}} in a new terminal.", { value0: agent }))
+        toast.error(
+          translate(
+            'auto.lib.launch.agent.in.new.tab.11cce5cc77',
+            'Could not launch {{value0}} in a new terminal.',
+            { value0: agent }
+          )
+        )
         return
       }
       store.setActiveTabType('terminal')
@@ -308,7 +327,13 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
           return
         }
         const label = submitPastedPrompt ? 'prompt' : 'notes'
-        toast.message(translate("auto.lib.launch.agent.in.new.tab.a5a1f7033f", "Your {{value0}} wasn't sent — paste it once the agent is ready.", { value0: label }))
+        toast.message(
+          translate(
+            'auto.lib.launch.agent.in.new.tab.a5a1f7033f',
+            "Your {{value0}} wasn't sent — paste it once the agent is ready.",
+            { value0: label }
+          )
+        )
         track('agent_error', {
           error_class: 'paste_readiness_timeout',
           agent_kind: tuiAgentToAgentKind(agent)

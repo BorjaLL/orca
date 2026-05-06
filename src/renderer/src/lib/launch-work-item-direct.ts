@@ -6,7 +6,7 @@ import {
   planAgentCliArgsSuffix
 } from '@/lib/tui-agent-startup'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
-import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection'
+import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { getWorkspaceIntentName, getWorkspaceSeedName, isGitLabIssueUrl } from '@/lib/new-workspace'
 import {
@@ -16,6 +16,7 @@ import {
 import { ensureHooksConfirmed } from '@/lib/ensure-hooks-confirmed'
 import { getConnectionId } from '@/lib/connection-context'
 import type {
+  CustomAgentProfile,
   GitPushTarget,
   SetupDecision,
   TuiAgent,
@@ -25,7 +26,8 @@ import type { LaunchSource } from '../../../shared/telemetry-events'
 import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
 import {
   buildDirectWorkItemStartupOpts,
-  pasteDirectWorkItemDraftWhenAgentReady
+  pasteDirectWorkItemDraftWhenAgentReady,
+  pickDirectLaunchAgent
 } from '@/lib/launch-work-item-direct-agent'
 import {
   resolveDirectPrStartPoint,
@@ -188,7 +190,11 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       resolvedPushTarget = result.pushTarget
       resolvedBranchNameOverride = result.branchNameOverride
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : translate("auto.lib.launch.work.item.direct.8bc45efdbc", "Failed to resolve PR head."))
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : translate('auto.lib.launch.work.item.direct.8bc45efdbc', 'Failed to resolve PR head.')
+      )
       openModalFallback()
       return false
     }
@@ -198,6 +204,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let primaryTabId: string | null
   let startupPlan: ReturnType<typeof buildAgentStartupPlan> = null
   let effectiveAgent: TuiAgent | null = null
+  let effectiveCustomProfile: CustomAgentProfile | null = null
   let draftLaunchedNatively = false
   const draftContent = getDirectDraftContent(item)
   let startupPlanFailed = false
@@ -247,7 +254,12 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
           sidebarRevealBehavior: 'auto',
           setup: result.setup
         })
-        toast.error(translate("auto.lib.launch.work.item.direct.19c7683acf", "Selected agent is not available in the created workspace."))
+        toast.error(
+          translate(
+            'auto.lib.launch.work.item.direct.19c7683acf',
+            'Selected agent is not available in the created workspace.'
+          )
+        )
         return false
       }
       effectiveAgent = agentOverride
@@ -259,11 +271,9 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
             ? await latestStore.ensureRemoteDetectedAgents(launchConnectionId)
             : await latestStore.ensureDetectedAgents()
       const detectedIds = new Set(detectedAgents)
-      effectiveAgent = pickTuiAgent(
-        settings?.defaultTuiAgent,
-        detectedIds,
-        settings?.disabledTuiAgents
-      )
+      const picked = pickDirectLaunchAgent(settings, detectedIds)
+      effectiveAgent = picked.agent
+      effectiveCustomProfile = picked.customProfile
     }
     if (effectiveAgent) {
       // Why: direct task launch creates and starts the workspace in separate
@@ -273,6 +283,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         // Non-critical: activation still has the explicit startup below.
       })
     }
+
     // Why: agents that gate first-launch behind a "Do you trust this folder?"
     // menu (cursor-agent, copilot) consume the bracketed paste as menu input.
     // Pre-write the same trust artifact those CLIs write after the user
@@ -307,7 +318,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
             draft: draftContent,
             cmdOverrides: settings?.agentCmdOverrides ?? {},
             platform: launchPlatform,
-            agentArgs
+            agentArgs,
+            customProfile: effectiveCustomProfile
           })
     if (draftLaunchPlan) {
       startupPlan = {
@@ -325,7 +337,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         cmdOverrides: settings?.agentCmdOverrides ?? {},
         platform: launchPlatform,
         agentArgs,
-        allowEmptyPromptLaunch: true
+        allowEmptyPromptLaunch: true,
+        customProfile: effectiveCustomProfile
       })
       startupPlanFailed = startupPlan === null
     }
@@ -339,7 +352,12 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     if (!activation) {
       // Worktree vanished between create and activate — extremely unlikely but
       // worth handling explicitly rather than silently dropping the draft.
-      toast.error(translate("auto.lib.launch.work.item.direct.67e103dd60", "Workspace created but could not be activated."))
+      toast.error(
+        translate(
+          'auto.lib.launch.work.item.direct.67e103dd60',
+          'Workspace created but could not be activated.'
+        )
+      )
       return false
     }
     primaryTabId = activation.primaryTabId
@@ -352,7 +370,12 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   store.setSidebarOpen(true)
 
   if (startupPlanFailed) {
-    toast.error(translate("auto.lib.launch.work.item.direct.3de6371df3", "Could not build the agent launch command."))
+    toast.error(
+      translate(
+        'auto.lib.launch.work.item.direct.3de6371df3',
+        'Could not build the agent launch command.'
+      )
+    )
     return false
   }
 

@@ -31,6 +31,7 @@ import TabBarCreateEntry from './TabBarCreateEntry'
 import { ShellIcon } from './shell-icons'
 import { resolveWindowsShellLaunchTarget } from './windows-shell-launch'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
+import { defaultBuiltinTuiAgent } from '@/lib/custom-agent-resolve'
 import { useDetectedAgents } from '@/hooks/useDetectedAgents'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import {
@@ -243,7 +244,7 @@ function TabBarInner({
     const repo = worktree ? s.repos?.find((entry) => entry.id === worktree.repoId) : null
     return Boolean(repo?.connectionId)
   })
-  const defaultAgent = useAppStore((s) => s.settings?.defaultTuiAgent)
+  const defaultAgent = useAppStore((s) => defaultBuiltinTuiAgent(s.settings))
   const agentCmdOverrides = useAppStore(
     (s) => s.settings?.agentCmdOverrides ?? EMPTY_AGENT_CMD_OVERRIDES
   )

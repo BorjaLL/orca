@@ -5,8 +5,9 @@ import {
   type ResumableTuiAgent
 } from './agent-session-resume'
 import { tokenizeCustomCommandTemplate } from './commit-message-prompt'
+import { resolveCustomAgentBaseCommand } from './custom-agent-profile'
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
-import type { TuiAgent } from './types'
+import type { CustomAgentProfile, TuiAgent } from './types'
 
 export type AgentStartupPlan = {
   agent: TuiAgent
@@ -85,10 +86,17 @@ function resolveBaseCommand(args: {
   agent: TuiAgent
   cmdOverrides: Partial<Record<TuiAgent, string>>
   shell: AgentStartupShell
+  platform: NodeJS.Platform
   agentArgs?: string | null
+  /** Why: when set, the launch command comes from the profile (catalog default
+   *  + generic per-agent override are bypassed) with its env vars rendered as a
+   *  shell prefix. The base agent still drives prompt-injection mode, telemetry
+   *  kind, and paste-draft logic, so custom profiles ride the existing flow. */
+  customProfile?: CustomAgentProfile | null
 }): { ok: true; command: string } | { ok: false; error: string } {
-  const override = args.cmdOverrides[args.agent]
-  const command = override || TUI_AGENT_CONFIG[args.agent].launchCmd
+  const command = args.customProfile
+    ? resolveCustomAgentBaseCommand(args.customProfile, args.platform)
+    : args.cmdOverrides[args.agent] || TUI_AGENT_CONFIG[args.agent].launchCmd
   const suffix = planAgentCliArgsSuffix(args.agentArgs, args.shell)
   if (!suffix.ok) {
     return suffix
@@ -106,6 +114,7 @@ export function buildAgentStartupPlan(args: {
   shell?: AgentStartupShell
   allowEmptyPromptLaunch?: boolean
   agentArgs?: string | null
+  customProfile?: CustomAgentProfile | null
 }): AgentStartupPlan | null {
   const { agent, prompt, cmdOverrides, platform, allowEmptyPromptLaunch = false } = args
   const shell = resolveStartupShell(platform, args.shell)
@@ -115,7 +124,9 @@ export function buildAgentStartupPlan(args: {
     agent,
     cmdOverrides,
     shell,
-    agentArgs: args.agentArgs
+    platform,
+    agentArgs: args.agentArgs,
+    customProfile: args.customProfile
   })
   if (!baseCommand.ok) {
     return null
@@ -195,7 +206,8 @@ export function buildAgentResumeStartupPlan(args: {
   const baseCommand = resolveBaseCommand({
     agent: args.agent,
     cmdOverrides: args.cmdOverrides,
-    shell
+    shell,
+    platform: args.platform
   })
   if (!baseCommand.ok) {
     return null
@@ -227,6 +239,7 @@ export function buildAgentDraftLaunchPlan(args: {
   platform: NodeJS.Platform
   shell?: AgentStartupShell
   agentArgs?: string | null
+  customProfile?: CustomAgentProfile | null
 }): AgentDraftLaunchPlan | null {
   const { agent, draft, cmdOverrides, platform } = args
   const shell = resolveStartupShell(platform, args.shell)
@@ -239,7 +252,9 @@ export function buildAgentDraftLaunchPlan(args: {
     agent,
     cmdOverrides,
     shell,
-    agentArgs: args.agentArgs
+    platform,
+    agentArgs: args.agentArgs,
+    customProfile: args.customProfile
   })
   if (!baseCommand.ok) {
     return null

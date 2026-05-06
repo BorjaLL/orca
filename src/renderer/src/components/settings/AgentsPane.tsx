@@ -1,8 +1,8 @@
 /* eslint-disable max-lines -- Why: the Agents pane keeps catalog rows, default
-   selection, per-agent controls, and runtime location together so settings
-   reconciliation stays visible in one file. */
+   selection, per-agent controls, the custom-agents section, and runtime
+   location together so settings reconciliation stays visible in one file. */
 import { useMemo, useState } from 'react'
-import { Check, ChevronDown, ExternalLink, RefreshCw, Terminal } from 'lucide-react'
+import { Check, ChevronDown, ExternalLink, RefreshCw, Terminal, Wrench } from 'lucide-react'
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
 import { useDetectedAgents } from '@/hooks/useDetectedAgents'
@@ -28,6 +28,7 @@ import {
   normalizeDisabledTuiAgents
 } from '../../../../shared/tui-agent-selection'
 import { translate } from '@/i18n/i18n'
+import { CustomAgentsSection } from './CustomAgentsSection'
 
 export { getAgentsPaneSearchEntries } from './agents-search'
 
@@ -425,8 +426,9 @@ export function AgentsPane({
   const defaultAgent = settings.defaultTuiAgent
   const cmdOverrides = settings.agentCmdOverrides ?? {}
   const disabledAgents = normalizeDisabledTuiAgents(settings.disabledTuiAgents)
+  const customAgents = settings.customAgents ?? []
 
-  const setDefault = (id: TuiAgent | 'blank' | null): void => {
+  const setDefault = (id: TuiAgent | 'blank' | { kind: 'custom'; id: string } | null): void => {
     updateSettings({ defaultTuiAgent: id })
   }
 
@@ -467,9 +469,14 @@ export function AgentsPane({
   // selected agent id is no longer detected on PATH.
   const isAutoDefault =
     defaultAgent === null ||
-    (defaultAgent !== 'blank' &&
+    (typeof defaultAgent !== 'object' &&
+      defaultAgent !== 'blank' &&
       (!detectedIds?.has(defaultAgent) || !isTuiAgentEnabled(defaultAgent, disabledAgents)))
   const isBlankDefault = defaultAgent === 'blank'
+  const defaultCustomAgentId =
+    defaultAgent && typeof defaultAgent === 'object' && defaultAgent.kind === 'custom'
+      ? defaultAgent.id
+      : null
 
   return (
     <div className="space-y-8">
@@ -525,6 +532,38 @@ export function AgentsPane({
               </DefaultAgentPill>
             )
           })}
+
+          {/* Custom-agent pills. Only profiles whose baseAgent is detected
+              show up here — a profile pointed at an uninstalled CLI can't
+              actually launch, so making it the "default" would just stall. */}
+          {customAgents
+            .filter((p) => detectedIds === null || detectedIds.has(p.baseAgent))
+            .map((profile) => {
+              const isActive = defaultCustomAgentId === profile.id
+              return (
+                <button
+                  key={`custom:${profile.id}`}
+                  type="button"
+                  onClick={() => setDefault({ kind: 'custom', id: profile.id })}
+                  className={cn(
+                    'flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-all',
+                    isActive
+                      ? 'border-foreground/20 bg-foreground/8 font-medium ring-1 ring-foreground/15'
+                      : 'border-border/50 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground'
+                  )}
+                >
+                  <span className="relative inline-flex">
+                    <AgentIcon agent={profile.baseAgent} size={14} />
+                    <Wrench
+                      className="absolute -right-1 -bottom-1 size-2 rounded-sm bg-background p-[1px] text-muted-foreground"
+                      aria-hidden
+                    />
+                  </span>
+                  {profile.label}
+                  {isActive && <Check className="size-3.5" />}
+                </button>
+              )
+            })}
         </div>
       </section>
 
@@ -534,6 +573,18 @@ export function AgentsPane({
 
       <AgentAwakeSetting settings={settings} updateSettings={updateSettings} />
 
+      <CustomAgentsSection
+        customAgents={customAgents}
+        onChange={(next) => updateSettings({ customAgents: next })}
+        defaultCustomAgentId={defaultCustomAgentId}
+        onSetDefault={(id) => setDefault({ kind: 'custom', id })}
+        // Why: the env shell-prefix path uses POSIX quoting; on Windows the
+        // user needs to wrap with `cmd /c …` to apply env vars cleanly. The
+        // settings hint flags this without blocking the input.
+        isWindows={typeof navigator !== 'undefined' && navigator.userAgent.includes('Windows')}
+      />
+
+      {/* Detected agents */}
       {detectedAgents.length > 0 && (
         <section className="space-y-3">
           <SettingsSubsectionHeader

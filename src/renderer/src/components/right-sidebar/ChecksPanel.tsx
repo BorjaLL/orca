@@ -52,6 +52,7 @@ import type {
   PRComment
 } from '../../../../shared/types'
 import { getConnectionId } from '@/lib/connection-context'
+import { defaultBuiltinTuiAgent } from '@/lib/custom-agent-resolve'
 import {
   buildResolvePullRequestConflictsPrompt,
   pickDefaultSourceControlAgent
@@ -1766,7 +1767,7 @@ export default function ChecksPanel(): React.JSX.Element {
   const noEnabledAgentKnown =
     detectedAgentsForAI != null &&
     pickDefaultSourceControlAgent(
-      settings?.defaultTuiAgent,
+      defaultBuiltinTuiAgent(settings),
       detectedAgentsForAI,
       settings?.disabledTuiAgents
     ) == null

@@ -34,7 +34,9 @@ export function resolveOnboardingSettingsHydration({
   }
 
   const settingsAgent =
-    settings.defaultTuiAgent && settings.defaultTuiAgent !== 'blank'
+    settings.defaultTuiAgent &&
+    settings.defaultTuiAgent !== 'blank' &&
+    typeof settings.defaultTuiAgent !== 'object'
       ? settings.defaultTuiAgent
       : null
   if (!agentInteracted && settingsAgent !== null && currentAgent !== settingsAgent) {

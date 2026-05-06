@@ -45,7 +45,9 @@ function resolveAgentArgsPlaceholderAgent(
   if (selectedAgent && !isCustomAgentId(selectedAgent)) {
     return selectedAgent
   }
-  return defaultTuiAgent && defaultTuiAgent !== 'blank' ? defaultTuiAgent : null
+  return defaultTuiAgent && defaultTuiAgent !== 'blank' && typeof defaultTuiAgent !== 'object'
+    ? defaultTuiAgent
+    : null
 }
 
 export function SourceControlActionRecipeRow({

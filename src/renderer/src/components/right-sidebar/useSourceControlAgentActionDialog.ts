@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getAgentCatalog } from '@/lib/agent-catalog'
+import { defaultBuiltinTuiAgent } from '@/lib/custom-agent-resolve'
 import { pickSourceControlLaunchAgent } from '@/lib/source-control-launch-agent-selection'
 import { buildSourceControlAgentDeliveryPlan } from './buildSourceControlAgentDeliveryPlan'
 import { useAppStore } from '@/store'
@@ -99,7 +100,7 @@ export function useSourceControlAgentActionDialog({
           current ??
           pickSourceControlLaunchAgent({
             savedAgent: savedAgentId,
-            defaultAgent: settings?.defaultTuiAgent,
+            defaultAgent: defaultBuiltinTuiAgent(settings),
             detectedAgents: nextAgents,
             disabledAgents
           })
@@ -116,7 +117,7 @@ export function useSourceControlAgentActionDialog({
     savedAgentArgs,
     savedCommandInputTemplate,
     repoId,
-    settings?.defaultTuiAgent
+    settings
   ])
 
   const handleOpenChange = useCallback(

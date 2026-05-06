@@ -145,8 +145,10 @@ export function SourceControlAgentActionDialogForm({
           {hasEnabledAgents || selectedAgent ? (
             <AgentCombobox
               agents={agentOptions}
-              value={selectedAgent}
-              onValueChange={onSelectedAgentChange}
+              value={selectedAgent ? { kind: 'builtin', agent: selectedAgent } : { kind: 'blank' }}
+              onValueChange={(selection) =>
+                onSelectedAgentChange(selection.kind === 'builtin' ? selection.agent : null)
+              }
               allowNarrowTrigger
               triggerClassName="w-full"
             />

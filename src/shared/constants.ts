@@ -291,6 +291,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     agentStatusHooksEnabled: true,
     tabAutoGenerateTitle: false,
     keepComputerAwakeWhileAgentsRun: false,
+    customAgents: [],
     // Why: 'auto' runs a layout-aware probe at boot (see
     // src/renderer/src/lib/keyboard-layout/*) that picks 'true' for US and
     // US-International and 'false' for every other layout. This mirrors
