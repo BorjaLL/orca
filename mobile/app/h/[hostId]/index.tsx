@@ -33,9 +33,15 @@ import {
   useHostClient,
   useCloseHost,
   useForceReconnect,
-  useReconnectAttempt
+  useReconnectAttempt,
+  useLastConnectedAt
 } from '../../../src/transport/client-context'
-import type { ConnectionState, RpcSuccess } from '../../../src/transport/types'
+import {
+  classifyConnection,
+  unreachableHint,
+  type ConnectionVerdict
+} from '../../../src/transport/connection-health'
+import type { RpcSuccess } from '../../../src/transport/types'
 import { triggerMediumImpact } from '../../../src/platform/haptics'
 import { StatusDot } from '../../../src/components/StatusDot'
 import { NewWorktreeModal } from '../../../src/components/NewWorktreeModal'
@@ -93,29 +99,8 @@ type FilterState = {
   selectedRepos: Set<string>
 }
 
-const STATUS_LABELS: Record<ConnectionState, string> = {
-  connecting: 'Connecting…',
-  handshaking: 'Securing…',
-  connected: 'Connected',
-  disconnected: 'Disconnected',
-  reconnecting: 'Reconnecting…',
-  'auth-failed': 'Auth failed'
-}
-
-// Why: same threshold as the home screen — kicks the label from
-// "Reconnecting…" to "Can't connect" once the rpc-client has cycled enough
-// times to indicate a real problem (wrong port, server down, network change).
-const RECONNECT_FAILURE_THRESHOLD = 3
-
-function getStatusDisplay(
-  state: ConnectionState,
-  attempts: number
-): { label: string; isError: boolean } {
-  if (state === 'auth-failed') return { label: 'Auth failed', isError: true }
-  if (state === 'reconnecting' && attempts >= RECONNECT_FAILURE_THRESHOLD) {
-    return { label: "Can't connect", isError: true }
-  }
-  return { label: STATUS_LABELS[state], isError: false }
+function isErrorVerdict(v: ConnectionVerdict): boolean {
+  return v.kind === 'warning' || v.kind === 'unreachable' || v.kind === 'auth-failed'
 }
 
 const SORT_OPTIONS: PickerOption<SortMode>[] = [
@@ -282,6 +267,7 @@ export default function HostScreen() {
   // docs/mobile-shared-client-per-host.md.
   const { client, state: connState } = useHostClient(hostId)
   const reconnectAttempts = useReconnectAttempt(hostId)
+  const lastConnectedAt = useLastConnectedAt(hostId)
   const clientRef = useRef<RpcClient | null>(null)
   const closeHostClient = useCloseHost()
   const forceReconnectHost = useForceReconnect()
@@ -713,12 +699,21 @@ export default function HostScreen() {
           </View>
           {connState !== 'connected' &&
             (() => {
-              const status = getStatusDisplay(connState, reconnectAttempts)
-              const showReconnectButton = status.isError && hostId && connState !== 'auth-failed'
+              const verdict = classifyConnection({
+                state: connState,
+                reconnectAttempts,
+                lastConnectedAt
+              })
+              const isError = isErrorVerdict(verdict)
+              const showReconnectButton =
+                isError &&
+                hostId &&
+                verdict.kind !== 'auth-failed' &&
+                verdict.kind !== 'unreachable'
               return (
                 <View style={styles.statusRow}>
-                  <Text style={[styles.statusText, status.isError && { color: colors.statusRed }]}>
-                    {status.label}
+                  <Text style={[styles.statusText, isError && { color: colors.statusRed }]}>
+                    {verdict.label}
                   </Text>
                   {showReconnectButton && (
                     <Pressable
@@ -815,6 +810,41 @@ export default function HostScreen() {
           </View>
         </View>
       )}
+
+      {/* Unreachable banner: surfaces the "host moved / network changed"
+          case after enough hard-fail reconnects. We keep retrying in the
+          background, but the user gets an actionable affordance instead
+          of an indefinite "Reconnecting…". */}
+      {connState !== 'auth-failed' &&
+        (() => {
+          const verdict = classifyConnection({
+            state: connState,
+            reconnectAttempts,
+            lastConnectedAt
+          })
+          if (verdict.kind !== 'unreachable') return null
+          return (
+            <View style={styles.authBanner}>
+              <Text style={styles.authBannerText}>{unreachableHint(verdict.reason)}</Text>
+              <View style={styles.authActions}>
+                <Pressable style={styles.authAction} onPress={() => router.push('/pair-scan')}>
+                  <Text style={styles.authActionText}>Re-pair</Text>
+                </Pressable>
+                {hostId && (
+                  <Pressable
+                    style={styles.authAction}
+                    onPress={() => void forceReconnectHost(hostId)}
+                  >
+                    <Text style={styles.authActionText}>Retry</Text>
+                  </Pressable>
+                )}
+                <Pressable style={styles.authAction} onPress={() => setConfirmRemoveHost(true)}>
+                  <Text style={[styles.authActionText, { color: colors.statusRed }]}>Remove</Text>
+                </Pressable>
+              </View>
+            </View>
+          )
+        })()}
 
       {/* Search bar */}
       {showSearch && (

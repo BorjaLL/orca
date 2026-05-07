@@ -32,6 +32,7 @@ import {
   useForceReconnect,
   usePrimeHosts
 } from '../src/transport/client-context'
+import { classifyConnection } from '../src/transport/connection-health'
 import { subscribeToDesktopNotifications } from '../src/notifications/mobile-notifications'
 import type { ConnectionState, HostProfile } from '../src/transport/types'
 import { triggerMediumImpact } from '../src/platform/haptics'
@@ -51,32 +52,6 @@ function endpointLabel(endpoint: string): string {
   } catch {
     return endpoint
   }
-}
-
-const STATUS_LABELS: Record<ConnectionState, string> = {
-  connected: 'Connected',
-  connecting: 'Connecting…',
-  disconnected: 'Disconnected',
-  reconnecting: 'Reconnecting…',
-  handshaking: 'Connecting…',
-  'auth-failed': 'Auth failed'
-}
-
-// Why: a few quick reconnects are normal (laptop wake, brief network blip).
-// After this many failed attempts in a row, the user almost certainly has
-// a real problem (wrong port, server down, network change), so escalate
-// the label and color so it's obvious something's wrong.
-const RECONNECT_FAILURE_THRESHOLD = 3
-
-function getStatusDisplay(
-  state: ConnectionState,
-  attempts: number
-): { label: string; isError: boolean } {
-  if (state === 'auth-failed') return { label: 'Auth failed', isError: true }
-  if (state === 'reconnecting' && attempts >= RECONNECT_FAILURE_THRESHOLD) {
-    return { label: "Can't connect", isError: true }
-  }
-  return { label: STATUS_LABELS[state], isError: false }
 }
 
 type StatsSummary = {
@@ -226,6 +201,7 @@ export default function HomeScreen() {
   const [confirmRemove, setConfirmRemove] = useState<HostProfile | null>(null)
   const [hostStates, setHostStates] = useState<Record<string, ConnectionState>>({})
   const [hostAttempts, setHostAttempts] = useState<Record<string, number>>({})
+  const [hostLastConnected, setHostLastConnected] = useState<Record<string, number | null>>({})
   const [stats, setStats] = useState<StatsSummary | null>(null)
   const [worktreeInfo, setWorktreeInfo] = useState<Record<string, HostWorktreeInfo>>({})
   const [accountsByHost, setAccountsByHost] = useState<Record<string, AccountsSnapshot>>({})
@@ -337,6 +313,18 @@ export default function HomeScreen() {
         const a = entry.client.getReconnectAttempt()
         if (next[entry.hostId] !== a) {
           next[entry.hostId] = a
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+    setHostLastConnected((prev) => {
+      const next: Record<string, number | null> = { ...prev }
+      let changed = false
+      for (const entry of allClients) {
+        const t = entry.client.getLastConnectedAt()
+        if (next[entry.hostId] !== t) {
+          next[entry.hostId] = t
           changed = true
         }
       }
@@ -636,9 +624,18 @@ export default function HomeScreen() {
           renderItem={({ item }) => {
             const state = hostStates[item.id] ?? 'connecting'
             const attempts = hostAttempts[item.id] ?? 0
+            const lastConnectedAt = hostLastConnected[item.id] ?? null
             const connected = state === 'connected'
             const info = worktreeInfo[item.id]
-            const status = getStatusDisplay(state, attempts)
+            const verdict = classifyConnection({
+              state,
+              reconnectAttempts: attempts,
+              lastConnectedAt
+            })
+            const isError =
+              verdict.kind === 'warning' ||
+              verdict.kind === 'unreachable' ||
+              verdict.kind === 'auth-failed'
             return (
               <Pressable
                 style={({ pressed }) => [styles.hostCard, pressed && styles.hostCardPressed]}
@@ -664,10 +661,8 @@ export default function HomeScreen() {
                   </Text>
                   <View style={styles.hostMeta}>
                     <StatusDot state={state} />
-                    <Text
-                      style={[styles.hostMetaItem, status.isError && { color: colors.statusRed }]}
-                    >
-                      {status.label}
+                    <Text style={[styles.hostMetaItem, isError && { color: colors.statusRed }]}>
+                      {verdict.label}
                       {connected && info
                         ? ` · ${info.totalWorktrees} worktree${info.totalWorktrees !== 1 ? 's' : ''}${info.activeCount > 0 ? ` · ${info.activeCount} active` : ''}`
                         : ''}
@@ -854,9 +849,15 @@ export default function HomeScreen() {
             state === 'connecting' ||
             state === 'handshaking' ||
             state === 'reconnecting'
+          // Why: "Reconnect" implies "you were connected, try again". If
+          // the client has never reached 'connected' this session (cold
+          // start, unreachable host, or after Disconnect) the action is
+          // functionally a fresh Connect — using the right verb makes
+          // the affordance match what tapping it actually does.
+          const hasEverConnected = (hostLastConnected[host.id] ?? null) != null
           const items: ActionSheetAction[] = []
           items.push({
-            label: 'Reconnect',
+            label: hasEverConnected && isLive ? 'Reconnect' : 'Connect',
             icon: RefreshCw,
             onPress: () => {
               setActionTarget(null)
