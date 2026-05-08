@@ -766,7 +766,11 @@ const XTERM_HTML = `<!DOCTYPE html>
     if (!term || !sel) return;
     var r = selRange();
     if (!r) return;
-    var startVRow = r.start.row - term.buffer.active.viewportY;
+    // Why: term.select(col, row, length) takes a buffer-absolute row,
+    // not a viewport-relative one. Subtracting viewportY here drifts the
+    // selection by the scrollback height — handles render where the user
+    // pressed (their math is independent), but xterm highlights an
+    // off-screen scrollback region and copies the wrong text.
     var length;
     if (r.start.row === r.end.row) {
       length = Math.max(1, r.end.col - r.start.col + 1);
@@ -776,7 +780,7 @@ const XTERM_HTML = `<!DOCTYPE html>
       var last = r.end.col + 1;
       length = first + middle + last;
     }
-    try { term.select(r.start.col, startVRow, length); } catch (e) {}
+    try { term.select(r.start.col, r.start.row, length); } catch (e) {}
   }
 
   function cancelSelect() {
