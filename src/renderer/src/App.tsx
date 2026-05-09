@@ -2,7 +2,14 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { getDefaultUIState } from '../../shared/constants'
 
-import { ArrowLeft, ArrowRight, Minimize2, MoreHorizontal, PanelLeft, PanelRight } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Minimize2,
+  MoreHorizontal,
+  PanelLeft,
+  PanelRight
+} from 'lucide-react'
 import logo from '../../../resources/logo.svg'
 import { SYNC_FIT_PANES_EVENT, TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
 import { syncZoomCSSVar } from '@/lib/ui-zoom'
@@ -24,6 +31,7 @@ import { UpdateCard } from './components/UpdateCard'
 import { StarNagCard } from './components/StarNagCard'
 import { TelemetryFirstLaunchSurface } from './components/TelemetryFirstLaunchSurface'
 import { ZoomOverlay } from './components/ZoomOverlay'
+import { shouldShowOnboarding } from './components/onboarding/should-show-onboarding'
 import { SshPassphraseDialog } from './components/settings/SshPassphraseDialog'
 import { useGitStatusPolling } from './components/right-sidebar/useGitStatusPolling'
 import { useEditorExternalWatch } from './hooks/useEditorExternalWatch'
@@ -38,12 +46,14 @@ import { buildWorkspaceSessionPayload } from './lib/workspace-session'
 import { countWorkingAgents, getWorkingAgentsPerWorktree } from './lib/agent-status'
 import { activateAndRevealWorktree } from './lib/worktree-activation'
 import { applyDocumentTheme } from './lib/document-theme'
+import { isEditableTarget } from './lib/editable-target'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { findWorktreeById, getRepoIdFromWorktreeId } from '@/store/slices/worktree-helpers'
 import {
   canGoBackWorktreeHistory,
   canGoForwardWorktreeHistory
 } from '@/store/slices/worktree-nav-history'
+import type { OnboardingState } from '../../shared/types'
 
 const isMac = navigator.userAgent.includes('Mac')
 const isWindows = !isMac && navigator.userAgent.includes('Windows')
@@ -75,10 +85,7 @@ function WindowControls(): React.JSX.Element {
         {maximized ? (
           // Restore icon (two overlapping squares)
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-            <path
-              d="M2 0v2H0v8h8V8h2V0H2zm6 9H1V3h7v6zM9 7H8V2H3V1h6v6z"
-              fill="currentColor"
-            />
+            <path d="M2 0v2H0v8h8V8h2V0H2zm6 9H1V3h7v6zM9 7H8V2H3V1h6v6z" fill="currentColor" />
           </svg>
         ) : (
           // Maximize icon (single square outline)
@@ -97,10 +104,7 @@ function WindowControls(): React.JSX.Element {
         onClick={() => window.api.ui.requestClose()}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-          <path
-            d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4-4-4z"
-            fill="currentColor"
-          />
+          <path d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4-4-4z" fill="currentColor" />
         </svg>
       </button>
     </div>
@@ -115,29 +119,11 @@ const WorktreeJumpPalette = lazy(() => import('./components/WorktreeJumpPalette'
 const NewWorkspaceComposerModal = lazy(() => import('./components/NewWorkspaceComposerModal'))
 // Why: lazy-loaded so the WebP asset + overlay module aren't fetched unless
 // the user opts into the experimental flag.
-const SidekickOverlay = lazy(() => import('./components/sidekick/SidekickOverlay'))
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-
-  // xterm.js focuses a hidden <textarea class="xterm-helper-textarea"> for
-  // keyboard input.  That element IS an editable target, but we must NOT
-  // suppress global shortcuts when the terminal itself is focused — otherwise
-  // Cmd/Ctrl+P and other app-level keybindings become unreachable.
-  if (target.classList.contains('xterm-helper-textarea')) {
-    return false
-  }
-
-  if (target.isContentEditable) {
-    return true
-  }
-  return (
-    target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !==
-    null
-  )
-}
+const PetOverlay = lazy(() => import('./components/pet/PetOverlay'))
+// Why: lazy so onboarding's step modules + assets aren't fetched for users
+// past first-launch. The gate `shouldShowOnboarding` lives in its own tiny
+// module so no eager import path pulls OnboardingFlow into the main chunk.
+const OnboardingFlow = lazy(() => import('./components/onboarding/OnboardingFlow'))
 
 function App(): React.JSX.Element {
   // Why: Zustand actions are referentially stable, but each individual
@@ -205,13 +191,14 @@ function App(): React.JSX.Element {
   const rightSidebarOpen = useAppStore((s) => s.rightSidebarOpen)
   const isFullScreen = useAppStore((s) => s.isFullScreen)
   const settings = useAppStore((s) => s.settings)
-  const sidekickEnabled = useAppStore((s) => s.settings?.experimentalSidekick === true)
-  const sidekickVisible = useAppStore((s) => s.sidekickVisible)
+  const petEnabled = useAppStore((s) => s.settings?.experimentalPet === true)
+  const petVisible = useAppStore((s) => s.petVisible)
   const canGoBackWorktree = useAppStore(canGoBackWorktreeHistory)
   const canGoForwardWorktree = useAppStore(canGoForwardWorktreeHistory)
   const titlebarLeftControlsRef = useRef<HTMLDivElement | null>(null)
   const [collapsedSidebarHeaderWidth, setCollapsedSidebarHeaderWidth] = useState(0)
   const [mountedLazyModalIds, setMountedLazyModalIds] = useState(() => new Set<string>())
+  const [onboarding, setOnboarding] = useState<OnboardingState | null>(null)
 
   // Subscribe to IPC push events
   useIpcEvents()
@@ -284,6 +271,10 @@ function App(): React.JSX.Element {
           actions.pruneLastVisitedTimestamps()
           actions.seedActiveWorktreeLastVisitedIfMissing()
           await actions.fetchBrowserSessionProfiles()
+          const onboardingState = await window.api.onboarding.get()
+          if (!cancelled) {
+            setOnboarding(onboardingState)
+          }
 
           // Why: SSH connections must be re-established BEFORE terminal
           // reconnect so that reconnectPersistedTerminals can route SSH-backed
@@ -1147,13 +1138,13 @@ function App(): React.JSX.Element {
         {mountedLazyModalIds.has('quick-open') ? <QuickOpen /> : null}
         {mountedLazyModalIds.has('worktree-palette') ? <WorktreeJumpPalette /> : null}
       </Suspense>
-      {/* Why: mount SidekickOverlay only when the experimental flag is on AND
-          the user hasn't hit "Hide sidekick" in the status-bar menu. Both
-          conditions must be true — see design doc (sidekick-overlay.md) on why
+      {/* Why: mount PetOverlay only when the experimental flag is on AND
+          the user hasn't hit "Hide pet" in the status-bar menu. Both
+          conditions must be true — see design doc (pet-overlay.md) on why
           the two toggles are kept independent. */}
-      {sidekickEnabled && sidekickVisible ? (
+      {petEnabled && petVisible ? (
         <Suspense fallback={null}>
-          <SidekickOverlay />
+          <PetOverlay />
         </Suspense>
       ) : null}
       <UpdateCard />
@@ -1168,6 +1159,11 @@ function App(): React.JSX.Element {
       <TelemetryFirstLaunchSurface />
       <ZoomOverlay />
       <SshPassphraseDialog />
+      {onboarding && shouldShowOnboarding(onboarding) ? (
+        <Suspense fallback={null}>
+          <OnboardingFlow onboarding={onboarding} onOnboardingChange={setOnboarding} />
+        </Suspense>
+      ) : null}
       <Toaster closeButton toastOptions={{ className: 'font-sans text-sm' }} />
       {/* Why: rendered last so it sits after all -webkit-app-region:drag elements
           in DOM order. Electron's hit-test for drag regions is DOM-order-based and

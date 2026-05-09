@@ -7,11 +7,13 @@ import { getWslHome, parseWslPath } from '../wsl'
  * Strips unsafe characters and collapses runs of special chars to a single hyphen.
  */
 export function sanitizeWorktreeName(input: string): string {
+  // Why: keep Unicode letters/numbers (CJK, accented Latin, etc.) so users can
+  // name workspaces in their own language. Git ref-format permits non-ASCII
+  // bytes, and modern filesystems handle UTF-8 paths. Only strip characters
+  // git or the filesystem actually rejects.
   const sanitized = input
     .trim()
-    .replace(/[\\/]+/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/[^\p{L}\p{N}._-]+/gu, '-')
     .replace(/-+/g, '-')
     // Why: git check-ref-format rejects any ref containing `..`, so a prompt
     // like "../../foo" that survives slugification as `..-..-foo` would
@@ -180,6 +182,7 @@ export function mergeWorktree(
           sparsePresetId: meta?.sparsePresetId
         }
       : {}),
+    ...(meta?.baseRef !== undefined ? { baseRef: meta.baseRef } : {}),
     // Why: diff comments are persisted on WorktreeMeta (see `WorktreeMeta` in
     // shared/types) and forwarded verbatim so the renderer store mirrors
     // on-disk state. `undefined` here means the worktree has no comments yet.

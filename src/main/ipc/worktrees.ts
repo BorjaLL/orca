@@ -45,7 +45,9 @@ import { killAllProcessesForWorktree } from '../runtime/worktree-teardown'
 import { getLocalPtyProvider } from './pty'
 import { removeWorktreeSymlinks } from './worktree-symlinks'
 import { track } from '../telemetry/client'
+import { getCohortAtEmit } from '../telemetry/cohort-classifier'
 import { workspaceSourceSchema, type WorkspaceSource } from '../../shared/telemetry-events'
+import { classifyWorkspaceCreateError } from './workspace-create-error-classifier'
 
 // Why: worktrees discovered on disk (not created via Orca's UI) have no
 // persisted WorktreeMeta, so mergeWorktree falls back to `lastActivityAt: 0`.
@@ -229,10 +231,27 @@ export function registerWorktreeHandlers(
         throw new Error('Folder mode does not support creating worktrees.')
       }
 
-      // Remote repos route all git operations through the relay
-      const result = repo.connectionId
-        ? await createRemoteWorktree(args, repo, store, mainWindow)
-        : await createLocalWorktree(args, repo, store, mainWindow, runtime)
+      const sourceParse = workspaceSourceSchema.safeParse(args.telemetrySource)
+      const source: WorkspaceSource = sourceParse.success ? sourceParse.data : 'unknown'
+
+      let result: CreateWorktreeResult
+      try {
+        // Why: only wrap the helpers themselves. The pre-validation throws
+        // above (`Repo not found`, `Folder mode does not support creating
+        // worktrees`) signal IPC-shape bugs, not the user-visible
+        // git/filesystem failures the funnel cares about — bucketing them
+        // into `unknown` would pollute the failure taxonomy.
+        result = repo.connectionId
+          ? await createRemoteWorktree(args, repo, store, mainWindow)
+          : await createLocalWorktree(args, repo, store, mainWindow, runtime)
+      } catch (error) {
+        track('workspace_create_failed', {
+          source,
+          error_class: classifyWorkspaceCreateError(error),
+          ...getCohortAtEmit()
+        })
+        throw error
+      }
 
       // Why: emit `workspace_created` only after the underlying create has
       // resolved (the helpers throw on failure, so reaching this line means
@@ -242,11 +261,10 @@ export function registerWorktreeHandlers(
       // baseBranch; an unspecified baseBranch means "branch from default
       // HEAD", which is the not-from-existing-branch case. We never send
       // the branch name itself.
-      const sourceParse = workspaceSourceSchema.safeParse(args.telemetrySource)
-      const source: WorkspaceSource = sourceParse.success ? sourceParse.data : 'unknown'
       track('workspace_created', {
         source,
-        from_existing_branch: typeof args.baseBranch === 'string' && args.baseBranch.length > 0
+        from_existing_branch: typeof args.baseBranch === 'string' && args.baseBranch.length > 0,
+        ...getCohortAtEmit()
       })
 
       return result
@@ -400,6 +418,7 @@ export function registerWorktreeHandlers(
           throw new Error(`No git provider for connection "${repo.connectionId}"`)
         }
         await provider.removeWorktree(worktreePath, args.force)
+        runtime.clearOptimisticReconcileToken(args.worktreeId)
         store.removeWorktreeMeta(args.worktreeId)
         deleteWorktreeHistoryDir(args.worktreeId)
         notifyWorktreesChanged(mainWindow, repoId)
@@ -436,6 +455,7 @@ export function registerWorktreeHandlers(
           // list` continues to show the stale entry and the branch it had checked out
           // remains locked — other worktrees cannot check it out.
           await gitExecFileAsync(['worktree', 'prune'], { cwd: repo.path }).catch(() => {})
+          runtime.clearOptimisticReconcileToken(args.worktreeId)
           store.removeWorktreeMeta(args.worktreeId)
           deleteWorktreeHistoryDir(args.worktreeId)
           invalidateAuthorizedRootsCache()
@@ -444,6 +464,7 @@ export function registerWorktreeHandlers(
         }
         throw new Error(formatWorktreeRemovalError(error, worktreePath, args.force ?? false))
       }
+      runtime.clearOptimisticReconcileToken(args.worktreeId)
       store.removeWorktreeMeta(args.worktreeId)
       deleteWorktreeHistoryDir(args.worktreeId)
       invalidateAuthorizedRootsCache()

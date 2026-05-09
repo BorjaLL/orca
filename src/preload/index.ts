@@ -10,7 +10,7 @@ import type {
   BaseRefDefaultResult,
   BrowserViewportOverride,
   CreateWorktreeArgs,
-  CustomSidekick,
+  CustomPet,
   FsChangedPayload,
   GetRateLimitResult,
   GitHubAssignableUser,
@@ -21,10 +21,14 @@ import type {
   ListWorkItemsResult,
   MemorySnapshot,
   NotificationDispatchResult,
+  NotificationPermissionStatusResult,
   NotificationSoundDataResult,
   NotificationSoundPathResult,
   NotificationSoundResult,
-  SearchResult
+  OnboardingState,
+  SearchResult,
+  WorktreeBaseStatusEvent,
+  WorktreeRemoteBranchConflictEvent
 } from '../shared/types'
 import type { RuntimeStatus, RuntimeSyncWindowGraph } from '../shared/runtime-types'
 import type { RateLimitState } from '../shared/rate-limit-types'
@@ -56,6 +60,10 @@ import type {
   UpdatePullRequestBySlugArgs,
   UpdateProjectItemFieldArgs
 } from '../shared/github-project-types'
+import {
+  richMarkdownContextMenuCommandChannel,
+  type RichMarkdownContextMenuCommandPayload
+} from '../shared/rich-markdown-context-menu'
 import type {
   SshConnectionState,
   SshTarget,
@@ -370,6 +378,24 @@ const api = {
         callback(data)
       ipcRenderer.on('worktrees:changed', listener)
       return () => ipcRenderer.removeListener('worktrees:changed', listener)
+    },
+
+    onBaseStatus: (callback: (data: WorktreeBaseStatusEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: WorktreeBaseStatusEvent) =>
+        callback(data)
+      ipcRenderer.on('worktree:baseStatus', listener)
+      return () => ipcRenderer.removeListener('worktree:baseStatus', listener)
+    },
+
+    onRemoteBranchConflict: (
+      callback: (data: WorktreeRemoteBranchConflictEvent) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: WorktreeRemoteBranchConflictEvent
+      ) => callback(data)
+      ipcRenderer.on('worktree:remoteBranchConflict', listener)
+      return () => ipcRenderer.removeListener('worktree:remoteBranchConflict', listener)
     }
   },
 
@@ -910,6 +936,10 @@ const api = {
     dispatch: (args: Record<string, unknown>): Promise<NotificationDispatchResult> =>
       ipcRenderer.invoke('notifications:dispatch', args),
     openSystemSettings: (): Promise<void> => ipcRenderer.invoke('notifications:openSystemSettings'),
+    getPermissionStatus: (): Promise<NotificationPermissionStatusResult> =>
+      ipcRenderer.invoke('notifications:getPermissionStatus'),
+    requestPermission: (): Promise<NotificationPermissionStatusResult> =>
+      ipcRenderer.invoke('notifications:requestPermission'),
     playSound: async (options?: { force?: boolean }): Promise<NotificationSoundResult> => {
       try {
         // Why: drop replays while the sound is still ringing. The "test"
@@ -971,6 +1001,15 @@ const api = {
     }
   },
 
+  onboarding: {
+    get: (): Promise<OnboardingState> => ipcRenderer.invoke('onboarding:get'),
+    update: (
+      updates: Partial<Omit<OnboardingState, 'checklist'>> & {
+        checklist?: Partial<OnboardingState['checklist']>
+      }
+    ): Promise<OnboardingState> => ipcRenderer.invoke('onboarding:update', updates)
+  },
+
   developerPermissions: {
     getStatus: (): Promise<unknown> => ipcRenderer.invoke('developerPermissions:getStatus'),
     request: (args: { id: string }): Promise<unknown> =>
@@ -1003,14 +1042,13 @@ const api = {
       ipcRenderer.invoke('shell:copyFile', args)
   },
 
-  sidekick: {
-    import: (): Promise<CustomSidekick | null> => ipcRenderer.invoke('sidekick:import'),
-    importPetBundle: (): Promise<CustomSidekick | null> =>
-      ipcRenderer.invoke('sidekick:importPetBundle'),
+  pet: {
+    import: (): Promise<CustomPet | null> => ipcRenderer.invoke('pet:import'),
+    importPetBundle: (): Promise<CustomPet | null> => ipcRenderer.invoke('pet:importPetBundle'),
     read: (id: string, fileName: string, kind?: 'image' | 'bundle'): Promise<ArrayBuffer | null> =>
-      ipcRenderer.invoke('sidekick:read', id, fileName, kind),
+      ipcRenderer.invoke('pet:read', id, fileName, kind),
     delete: (id: string, fileName: string, kind?: 'image' | 'bundle'): Promise<void> =>
-      ipcRenderer.invoke('sidekick:delete', id, fileName, kind)
+      ipcRenderer.invoke('pet:delete', id, fileName, kind)
   },
 
   browser: {
@@ -1907,6 +1945,16 @@ const api = {
     // while the markdown editor owns focus, letting TipTap apply bold instead.
     setMarkdownEditorFocused: (focused: boolean): void => {
       ipcRenderer.send('ui:setMarkdownEditorFocused', focused)
+    },
+    onRichMarkdownContextCommand: (
+      callback: (payload: RichMarkdownContextMenuCommandPayload) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: RichMarkdownContextMenuCommandPayload
+      ) => callback(payload)
+      ipcRenderer.on(richMarkdownContextMenuCommandChannel, listener)
+      return () => ipcRenderer.removeListener(richMarkdownContextMenuCommandChannel, listener)
     },
     onFullscreenChanged: (callback: (isFullScreen: boolean) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, isFullScreen: boolean) =>

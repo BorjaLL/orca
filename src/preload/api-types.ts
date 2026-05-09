@@ -11,7 +11,7 @@ import type {
   CodexRateLimitAccountsState,
   CreateWorktreeArgs,
   CreateWorktreeResult,
-  CustomSidekick,
+  CustomPet,
   DirEntry,
   FsChangedPayload,
   GhosttyImportPreview,
@@ -45,7 +45,9 @@ import type {
   GetRateLimitResult,
   NotificationDispatchRequest,
   NotificationDispatchResult,
+  NotificationPermissionStatusResult,
   NotificationSoundResult,
+  OnboardingState,
   OrcaHooks,
   PersistedUIState,
   PRCheckDetail,
@@ -59,7 +61,9 @@ import type {
   MemorySnapshot,
   UpdateStatus,
   Worktree,
+  WorktreeBaseStatusEvent,
   WorktreeMeta,
+  WorktreeRemoteBranchConflictEvent,
   WorktreeSetupLaunch,
   WorktreeStartupLaunch,
   WorkspaceSessionState
@@ -91,6 +95,7 @@ import type {
   UpdatePullRequestBySlugArgs,
   UpdateProjectItemFieldArgs
 } from '../shared/github-project-types'
+import type { RichMarkdownContextMenuCommandPayload } from '../shared/rich-markdown-context-menu'
 import type {
   BrowserSetGrabModeArgs,
   BrowserSetGrabModeResult,
@@ -433,6 +438,10 @@ export type PreloadApi = {
     updateMeta: (args: { worktreeId: string; updates: Partial<WorktreeMeta> }) => Promise<Worktree>
     persistSortOrder: (args: { orderedIds: string[] }) => Promise<void>
     onChanged: (callback: (data: { repoId: string }) => void) => () => void
+    onBaseStatus: (callback: (data: WorktreeBaseStatusEvent) => void) => () => void
+    onRemoteBranchConflict: (
+      callback: (data: WorktreeRemoteBranchConflictEvent) => void
+    ) => () => void
   }
   pty: {
     spawn: (opts: {
@@ -750,7 +759,20 @@ export type PreloadApi = {
   notifications: {
     dispatch: (args: NotificationDispatchRequest) => Promise<NotificationDispatchResult>
     openSystemSettings: () => Promise<void>
+    getPermissionStatus: () => Promise<NotificationPermissionStatusResult>
+    requestPermission: () => Promise<NotificationPermissionStatusResult>
     playSound: (options?: { force?: boolean }) => Promise<NotificationSoundResult>
+  }
+  onboarding: {
+    get: () => Promise<OnboardingState>
+    // Why: main-process `updateOnboarding` merges checklist field-by-field, so
+    // callers can pass a partial checklist (e.g. just `{ addedRepo: true }`)
+    // without re-supplying every flag.
+    update: (
+      updates: Partial<Omit<OnboardingState, 'checklist'>> & {
+        checklist?: Partial<OnboardingState['checklist']>
+      }
+    ) => Promise<OnboardingState>
   }
   developerPermissions: {
     getStatus: () => Promise<DeveloperPermissionState[]>
@@ -769,9 +791,9 @@ export type PreloadApi = {
     pickDirectory: (args: { defaultPath?: string }) => Promise<string | null>
     copyFile: (args: { srcPath: string; destPath: string }) => Promise<void>
   }
-  sidekick: {
-    import: () => Promise<CustomSidekick | null>
-    importPetBundle: () => Promise<CustomSidekick | null>
+  pet: {
+    import: () => Promise<CustomPet | null>
+    importPetBundle: () => Promise<CustomPet | null>
     read: (id: string, fileName: string, kind?: 'image' | 'bundle') => Promise<ArrayBuffer | null>
     delete: (id: string, fileName: string, kind?: 'image' | 'bundle') => Promise<void>
   }
@@ -1073,6 +1095,9 @@ export type PreloadApi = {
     setZoomLevel: (level: number) => void
     syncTrafficLights: (zoomFactor: number) => void
     setMarkdownEditorFocused: (focused: boolean) => void
+    onRichMarkdownContextCommand: (
+      callback: (payload: RichMarkdownContextMenuCommandPayload) => void
+    ) => () => void
     onFullscreenChanged: (callback: (isFullScreen: boolean) => void) => () => void
     minimize: () => void
     maximize: () => void
