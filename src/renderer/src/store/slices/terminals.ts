@@ -740,12 +740,28 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // title noise (spinner frame, prompt suffix) from churning the sidebar.
       const classificationChanged =
         detectAgentStatusFromTitle(prevTitle ?? '') !== detectAgentStatusFromTitle(title)
+      // Why: locate the owning worktree so we can suppress the sortEpoch
+      // bump when the changing pane lives in the active worktree. Title
+      // changes there are side-effects of the user's click (PTY remount on
+      // worktree activation emits a fresh shell prompt, then the agent
+      // re-emits its working title) — bumping would re-rank the sidebar on
+      // click, the exact bug PR #209 fixed for updateTabTitle. If no owner
+      // is found the pane is orphaned; skip the bump as unsafe.
+      let ownerWorktreeId: string | null = null
+      for (const [wId, tabs] of Object.entries(s.tabsByWorktree)) {
+        if (tabs.some((t) => t.id === tabId)) {
+          ownerWorktreeId = wId
+          break
+        }
+      }
+      const isActive = ownerWorktreeId !== null && ownerWorktreeId === s.activeWorktreeId
+      const shouldBump = classificationChanged && ownerWorktreeId !== null && !isActive
       return {
         runtimePaneTitlesByTabId: {
           ...s.runtimePaneTitlesByTabId,
           [tabId]: { ...currentByPane, [paneId]: title }
         },
-        ...(classificationChanged ? { sortEpoch: s.sortEpoch + 1 } : {})
+        ...(shouldBump ? { sortEpoch: s.sortEpoch + 1 } : {})
       }
     })
   },
@@ -771,9 +787,22 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
       // changes the title-heuristic verdict for that pane, so the smart sort
       // needs a re-sort. See setRuntimePaneTitle for the rationale.
       const hadClassification = detectAgentStatusFromTitle(prevTitle ?? '') !== null
+      // Why: same active-worktree gate as setRuntimePaneTitle — clears that
+      // fire as a side-effect of a click-driven PTY teardown in the active
+      // worktree must not re-rank the sidebar. Skip bumping when no owner is
+      // found (orphaned pane) for the same safety reason.
+      let ownerWorktreeId: string | null = null
+      for (const [wId, tabs] of Object.entries(s.tabsByWorktree)) {
+        if (tabs.some((t) => t.id === tabId)) {
+          ownerWorktreeId = wId
+          break
+        }
+      }
+      const isActive = ownerWorktreeId !== null && ownerWorktreeId === s.activeWorktreeId
+      const shouldBump = hadClassification && ownerWorktreeId !== null && !isActive
       return {
         runtimePaneTitlesByTabId: next,
-        ...(hadClassification ? { sortEpoch: s.sortEpoch + 1 } : {})
+        ...(shouldBump ? { sortEpoch: s.sortEpoch + 1 } : {})
       }
     })
   },

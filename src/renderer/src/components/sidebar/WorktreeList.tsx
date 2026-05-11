@@ -702,25 +702,35 @@ const WorktreeList = React.memo(function WorktreeList() {
   // a worktree there. Suppressing repeats with a ref keeps the event signal
   // clean without growing component state.
   const prevClassByWorktreeIdRef = useRef<Map<string, SmartClass>>(new Map())
+  // Why gate the first observation: when Smart mode first activates (app
+  // start, or toggling away from Smart and back), the prev-class map is
+  // empty, so every existing Class-1 worktree would look like a fresh
+  // promotion and produce a burst of spurious events. Treat the first
+  // observation as a silent baseline — populate the map but don't fire.
+  const hasObservedSmartOnceRef = useRef<boolean>(false)
 
   useEffect(() => {
     const attention = lastAttentionByWorktreeRef.current
     if (sortBy !== 'smart' || !attention) {
       // Why reset: when the user switches off Smart, drop the prior-class map
       // so re-entering Smart doesn't fire stale promotion events for worktrees
-      // whose state has since changed.
+      // whose state has since changed. Reset the first-observation gate too
+      // so the next Smart-mode session starts with a fresh silent baseline.
       prevClassByWorktreeIdRef.current = new Map()
+      hasObservedSmartOnceRef.current = false
       return
     }
     const next = new Map<string, SmartClass>()
+    const isFirstObservation = !hasObservedSmartOnceRef.current
     for (const [worktreeId, info] of attention) {
       const prev = prevClassByWorktreeIdRef.current.get(worktreeId)
-      if (info.cls === 1 && prev !== 1 && info.cause) {
+      if (!isFirstObservation && info.cls === 1 && prev !== 1 && info.cause) {
         track('smart_sort_class_1_promotion', { cause: info.cause })
       }
       next.set(worktreeId, info.cls)
     }
     prevClassByWorktreeIdRef.current = next
+    hasObservedSmartOnceRef.current = true
   }, [sortBy, sortedIds])
 
   // Why a 30s timer owned by the component: the class-distribution event is
@@ -752,11 +762,11 @@ const WorktreeList = React.memo(function WorktreeList() {
         }
       }
       track('smart_sort_class_distribution', {
-        class1,
-        class2,
-        class3,
-        class4,
-        totalWorktrees: attention.size
+        class_1: class1,
+        class_2: class2,
+        class_3: class3,
+        class_4: class4,
+        total_worktrees: attention.size
       })
     }
     fire()

@@ -504,11 +504,11 @@ const onboardingGhosttyImportClickedSchema = z.object({ cohort: cohortSchema }).
 // our regression signal: users abandoning Smart for Recent.
 const smartSortClassDistributionSchema = z
   .object({
-    class1: z.number().int().nonnegative(),
-    class2: z.number().int().nonnegative(),
-    class3: z.number().int().nonnegative(),
-    class4: z.number().int().nonnegative(),
-    totalWorktrees: z.number().int().nonnegative()
+    class_1: z.number().int().nonnegative(),
+    class_2: z.number().int().nonnegative(),
+    class_3: z.number().int().nonnegative(),
+    class_4: z.number().int().nonnegative(),
+    total_worktrees: z.number().int().nonnegative()
   })
   .strict()
 const smartSortClass1PromotionSchema = z
