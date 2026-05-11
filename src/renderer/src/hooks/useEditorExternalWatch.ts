@@ -4,7 +4,6 @@
    readable in one file. */
 import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@/store'
-import { getConnectionId } from '@/lib/connection-context'
 import { basename, joinPath } from '@/lib/path'
 import { normalizeAbsolutePath } from '@/components/right-sidebar/file-explorer-paths'
 import { getExternalFileChangeRelativePath } from '@/components/right-sidebar/useFileExplorerWatch'
@@ -105,6 +104,7 @@ type PendingDeleteTimer = {
 export function useEditorExternalWatch(): void {
   const openFiles = useAppStore((s) => s.openFiles)
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
+  const repos = useAppStore((s) => s.repos)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
 
   // Why: unify the target computation and the dependency key into one memo so
@@ -130,16 +130,17 @@ export function useEditorExternalWatch(): void {
       if (!wt) {
         continue
       }
+      const repo = repos.find((r) => r.id === wt.repoId)
       const target = {
         worktreeId: id,
         worktreePath: wt.path,
-        connectionId: getConnectionId(id) ?? undefined
+        connectionId: repo?.connectionId ?? undefined
       }
       nextTargets.push(target)
       parts.push(getWatchedTargetKey(target))
     }
     return { targets: nextTargets, targetsKey: parts.join('|') }
-  }, [openFiles, worktreesByRepo, activeWorktreeId])
+  }, [openFiles, worktreesByRepo, repos, activeWorktreeId])
 
   const targetsRef = useRef<WatchedTarget[]>([])
   const latestTargetsRef = useRef<WatchedTarget[]>(targets)
