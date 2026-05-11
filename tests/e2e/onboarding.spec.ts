@@ -333,13 +333,25 @@ test.describe('Onboarding flow', () => {
     ).toBeVisible()
     await orcaPage.getByRole('button', { name: 'Skip' }).click()
     await expect(orcaPage.getByRole('heading', { name: /Add your first project/i })).toBeVisible()
+    await expect(
+      orcaPage.getByText(/Orca needs a folder or repo before it can create a workspace/i)
+    ).toBeVisible()
     await expect(orcaPage.getByRole('button', { name: /I'll add one later/ })).toHaveCount(0)
-    await expect(orcaPage.getByRole('button', { name: 'Skip' })).toHaveCount(0)
+    // Why: exact match — any unrelated "Skip…" button could give a false
+    // negative (mirrors the 'Back' exact-match rationale above).
+    await expect(orcaPage.getByRole('button', { name: 'Skip', exact: true })).toHaveCount(0)
+
+    // Why: the previous Skip click flushes persistence async via IPC, so poll
+    // for lastCompletedStep === 3 before snapshotting the rest of the state.
+    await expect
+      .poll(async () => (await getOnboardingState(orcaPage)).lastCompletedStep, {
+        timeout: 5_000
+      })
+      .toBe(3)
 
     const final = await getOnboardingState(orcaPage)
     expect(final.closedAt).toBeNull()
     expect(final.outcome).toBeNull()
     expect(final.checklist.dismissed).toBe(false)
-    expect(final.lastCompletedStep).toBe(3)
   })
 })

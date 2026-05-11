@@ -3,7 +3,7 @@ import { track } from '@/lib/telemetry'
 import { ONBOARDING_FINAL_STEP } from '../../../../shared/constants'
 import type { GlobalSettings, OnboardingState, TuiAgent } from '../../../../shared/types'
 import type { NotificationDraft } from './NotificationStep'
-import type { StepId, StepNumber } from './use-onboarding-flow-types'
+import type { StepId } from './use-onboarding-flow-types'
 
 export async function persistStep(
   stepNumber: number,
@@ -26,11 +26,6 @@ type CloseWithDeps = {
   setError: (msg: string | null) => void
 }
 
-export type DismissedExtras = {
-  advancedVia: 'button' | 'keyboard'
-  durationMs: number
-}
-
 export function useCloseWith({
   onOnboardingChange,
   onboardingChecklist,
@@ -39,24 +34,23 @@ export function useCloseWith({
 }: CloseWithDeps) {
   return useCallback(
     async (
-      outcome: 'completed' | 'dismissed',
+      outcome: 'completed',
       checklist: Partial<OnboardingState['checklist']>,
-      lastStepReached: StepNumber,
-      completedPath?: 'open_folder' | 'clone_url',
-      dismissedExtras?: DismissedExtras
+      completedPath?: 'open_folder' | 'clone_url'
     ): Promise<boolean> => {
       let nextState: OnboardingState
       try {
         // Why: main-process updateOnboarding already merges with current state,
         // so spreading the local (potentially stale) onboarding.checklist would
-        // overwrite concurrent updates.
+        // overwrite concurrent updates. Writing dismissed:false explicitly
+        // resets any prior on-disk true value via the merge.
         nextState = await window.api.onboarding.update({
           closedAt: Date.now(),
           outcome,
-          lastCompletedStep: outcome === 'completed' ? ONBOARDING_FINAL_STEP : -1,
+          lastCompletedStep: ONBOARDING_FINAL_STEP,
           checklist: {
             ...checklist,
-            dismissed: outcome === 'dismissed'
+            dismissed: false
           }
         })
       } catch (err) {
@@ -64,7 +58,7 @@ export function useCloseWith({
         return false
       }
       onOnboardingChange(nextState)
-      if (outcome === 'completed' && completedPath) {
+      if (completedPath) {
         const total = Math.max(0, Date.now() - startTimeRef.current)
         track('onboarding_completed', {
           path: completedPath,
@@ -87,16 +81,6 @@ export function useCloseWith({
             time_since_completed_ms: 0
           })
         }
-      } else if (outcome === 'dismissed') {
-        track('onboarding_dismissed', {
-          last_step: lastStepReached,
-          ...(dismissedExtras
-            ? {
-                duration_ms: dismissedExtras.durationMs,
-                advanced_via: dismissedExtras.advancedVia
-              }
-            : {})
-        })
       }
       return true
     },

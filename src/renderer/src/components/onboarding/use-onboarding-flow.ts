@@ -252,7 +252,6 @@ export function useOnboardingFlow(
       const closed = await closeWith(
         'completed',
         isGit ? { addedRepo: true } : { addedFolder: true },
-        4,
         path
       )
       if (!closed) {
@@ -267,13 +266,19 @@ export function useOnboardingFlow(
         value_kind: 'repo',
         duration_ms: consumeStepDurationMs()
       })
-      // Why: plain folders are valid first projects too; suppressing the
-      // composer for them strands users after onboarding with no workspace.
-      openModal('new-workspace-composer', {
-        initialRepoId: repoId,
-        prefilledName: 'onboarding',
-        telemetrySource: 'onboarding'
-      })
+      // Why: plain folders are valid first projects, but the composer is
+      // git-only (useComposerState filters to git repos and creates worktrees,
+      // which non-git folders can't do). Folders complete onboarding via the
+      // activateAndRevealWorktree call above, which navigates the user
+      // straight into the folder workspace; opening the composer for them
+      // would land them on a stuck modal with no selectable repo.
+      if (isGit) {
+        openModal('new-workspace-composer', {
+          initialRepoId: repoId,
+          prefilledName: 'onboarding',
+          telemetrySource: 'onboarding'
+        })
+      }
     },
     [closeWith, consumeStepDurationMs, fetchRepos, fetchWorktrees, openModal]
   )
@@ -398,7 +403,7 @@ export function useOnboardingFlow(
     }
     // Why: skip has no keyboard path today, so `advanced_via` is always
     // `'button'`. Including the field keeps the shape uniform with the
-    // completed/dismissed events and lets a future keyboard-skip arrive
+    // completed events and lets a future keyboard-skip arrive
     // without a schema migration.
     const durationMs = consumeStepDurationMs()
     track('onboarding_step_skipped', {
