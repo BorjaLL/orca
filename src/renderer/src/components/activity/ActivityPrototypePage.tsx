@@ -347,34 +347,32 @@ function AgentEventRow({
         }
       }}
       className={cn(
-        'group grid grid-cols-[2rem_minmax(0,1fr)_7.25rem] gap-3 border-b border-border px-3 cursor-pointer transition-colors hover:bg-accent/40',
+        'group relative grid grid-cols-[2rem_minmax(0,1fr)_7.25rem] gap-3 border-b border-border px-3 cursor-pointer transition-colors hover:bg-accent/40',
         compact ? 'py-2' : 'py-3.5',
         event.unread && 'bg-accent/20'
       )}
     >
+      {/* Why (left-edge bar): matches ThreadRow's unread treatment so the two
+          surfaces share one unread vocabulary. A row-level marker keeps the
+          state-icon column uncrowded — earlier attempts (mini-dot, bell glyph)
+          competed with the AgentStateDot. */}
+      {event.unread ? (
+        <span
+          className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full bg-primary"
+          aria-hidden
+        />
+      ) : null}
       <div className="flex items-center justify-center pt-0.5">
-        <span className="relative inline-flex">
-          {/* Why (bell as unread glyph): visually rhymes with the Bell button on
-              ThreadRow so both surfaces share one unread vocabulary. Sits at
-              the icon's top-right corner with a fill-background halo so the
-              bell reads cleanly against the row's tinted unread background. */}
-          {event.unread ? (
-            <BellDot
-              className="absolute -top-1.5 -right-2 size-3.5 text-primary fill-background"
-              aria-hidden
-            />
-          ) : null}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
-                <AgentStateDot state={dotState} size="lg" />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={4}>
-              {event.entry.interrupted ? 'Interrupted' : agentStateLabel(dotState)}
-            </TooltipContent>
-          </Tooltip>
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">
+              <AgentStateDot state={dotState} size="lg" />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={4}>
+            {event.entry.interrupted ? 'Interrupted' : agentStateLabel(dotState)}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="min-w-0">
@@ -449,23 +447,20 @@ function WorktreeEventRow({
         }
       }}
       className={cn(
-        'group grid grid-cols-[2rem_minmax(0,1fr)_7.25rem] gap-3 border-b border-border px-3 cursor-pointer transition-colors hover:bg-accent/40',
+        'group relative grid grid-cols-[2rem_minmax(0,1fr)_7.25rem] gap-3 border-b border-border px-3 cursor-pointer transition-colors hover:bg-accent/40',
         compact ? 'py-2' : 'py-3.5',
         event.unread && 'bg-accent/20'
       )}
     >
+      {/* Why: see AgentEventRow — left-edge bar matches ThreadRow's unread cue. */}
+      {event.unread ? (
+        <span
+          className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full bg-primary"
+          aria-hidden
+        />
+      ) : null}
       <div className="flex items-center justify-center pt-0.5">
-        <span className="relative inline-flex text-muted-foreground">
-          {/* Why: see AgentEventRow — bell at the icon's top-right matches the
-              unread vocabulary used on ThreadRow. */}
-          {event.unread ? (
-            <BellDot
-              className="absolute -top-1.5 -right-2 size-3.5 text-primary fill-background"
-              aria-hidden
-            />
-          ) : null}
-          <Plus className="size-[18px]" />
-        </span>
+        <Plus className="size-[18px] text-muted-foreground" />
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
