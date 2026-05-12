@@ -320,8 +320,16 @@ function AgentEventRow({
   const compact = density === 'compact'
   const dotState = asDotState(event.state)
 
-  const jumpToAgent = (clickEvent: React.MouseEvent): void => {
-    clickEvent.stopPropagation()
+  // Why (row click = navigate + ack): the inline "Jump to agent" button only
+  // rendered when agentAlive (so retained-done rows had no jump affordance at
+  // all) and in compact mode it was hover-only. Users naturally click anywhere
+  // on the row expecting it to navigate, so the row itself takes over the
+  // navigate role and subsumes the button. Per the design doc we drop the
+  // agentAlive gate entirely (option 1): activateAndRevealWorktree is safe
+  // unconditionally and activateTabAndFocusPane silently no-ops on a missing
+  // tab id, so a stale-tab click is just a soft no-op.
+  const openAgent = (clickEvent?: React.MouseEvent | React.KeyboardEvent): void => {
+    clickEvent?.stopPropagation()
     onMarkRead(event)
     activateAndRevealWorktree(event.worktree.id)
     activateTabAndFocusPane(event.tab.id, paneIdFromPaneKey(event.entry.paneKey))
@@ -329,12 +337,20 @@ function AgentEventRow({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={openAgent}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          openAgent(e)
+        }
+      }}
       className={cn(
-        'group grid grid-cols-[2rem_minmax(0,1fr)_7.25rem] gap-3 border-b border-border px-3 transition-colors hover:bg-accent/40',
+        'group grid grid-cols-[2rem_minmax(0,1fr)_7.25rem] gap-3 border-b border-border px-3 cursor-pointer transition-colors hover:bg-accent/40',
         compact ? 'py-2' : 'py-3.5',
         event.unread && 'bg-accent/20'
       )}
-      onClick={() => onMarkRead(event)}
     >
       <div className="flex justify-center pt-1">
         <span className="relative inline-flex">
@@ -392,28 +408,10 @@ function AgentEventRow({
           </span>
           <span>{agentMeta(event)}</span>
         </div>
-        {!compact && event.agentAlive ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <Button type="button" variant="outline" size="xs" onClick={jumpToAgent}>
-              Jump to agent
-            </Button>
-          </div>
-        ) : null}
       </div>
 
       <div className="flex flex-col items-end gap-2 pt-0.5">
         <EventTime timestamp={event.timestamp} />
-        {compact && event.agentAlive ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="xs"
-            onClick={jumpToAgent}
-            className="opacity-0 transition-opacity group-hover:opacity-100"
-          >
-            Agent
-          </Button>
-        ) : null}
       </div>
     </div>
   )
@@ -430,14 +428,31 @@ function WorktreeEventRow({
 }): React.JSX.Element {
   const compact = density === 'compact'
 
+  // Why: mirror AgentEventRow — clicking a "Worktree created" row should
+  // navigate to that worktree (and ack the unread). The row is the click
+  // target; there's no separate jump button.
+  const openWorktree = (clickEvent?: React.MouseEvent | React.KeyboardEvent): void => {
+    clickEvent?.stopPropagation()
+    onMarkRead(event)
+    activateAndRevealWorktree(event.worktree.id)
+  }
+
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={openWorktree}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          openWorktree(e)
+        }
+      }}
       className={cn(
-        'group grid grid-cols-[2rem_minmax(0,1fr)_7.25rem] gap-3 border-b border-border px-3 transition-colors hover:bg-accent/40',
+        'group grid grid-cols-[2rem_minmax(0,1fr)_7.25rem] gap-3 border-b border-border px-3 cursor-pointer transition-colors hover:bg-accent/40',
         compact ? 'py-2' : 'py-3.5',
         event.unread && 'bg-accent/20'
       )}
-      onClick={() => onMarkRead(event)}
     >
       <div className="flex justify-center pt-0.5">
         <span className="relative inline-flex text-muted-foreground">
