@@ -1,6 +1,5 @@
 /* eslint-disable max-lines */
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { DEFAULT_STATUS_BAR_ITEMS, DEFAULT_WORKTREE_CARD_PROPERTIES } from '../../shared/constants'
 
 import { ArrowLeft, ArrowRight, Minimize2, PanelLeft, PanelRight } from 'lucide-react'
 import { FOCUS_TERMINAL_PANE_EVENT, TOGGLE_TERMINAL_PANE_EXPAND_EVENT } from '@/constants/terminal'
@@ -32,6 +31,10 @@ import {
   buildWorkspaceSessionPayload,
   shouldPersistWorkspaceSession
 } from './lib/workspace-session'
+import {
+  getStartupErrorFallbackUI,
+  hydratePersistedUIAfterStartupRead
+} from './lib/startup-ui-hydration'
 import { countWorkingAgents, getWorkingAgentsPerWorktree } from './lib/agent-status'
 import { activateAndRevealWorktree } from './lib/worktree-activation'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
@@ -167,12 +170,10 @@ function App(): React.JSX.Element {
     // without this, the first (unmounted) pass would keep spawning PTYs.
     const abortController = new AbortController()
 
-    // Why (issue #1158): track whether the real persisted UI hydration
-    // succeeded so the catch path below doesn't overwrite freshly-loaded
-    // ui.json values with hardcoded defaults. The debounced UI writer is
-    // gated only on persistedUIReady, so a default-hydration after a real
-    // one would serialize those defaults back to disk — silently erasing
-    // sidebar width, sort order, filters, etc.
+    // Why (issue #1158): hydrate persisted UI immediately after ui.get()
+    // succeeds, before any later session step can throw. The UI writer is
+    // gated only on persistedUIReady, so falling back to defaults after a
+    // successful ui.get() would serialize those defaults back to disk.
     let uiHydrated = false
     // Why (issue #1158): track whether the success-path call to
     // reconnectPersistedTerminals started so the catch path doesn't run it a
@@ -190,6 +191,11 @@ function App(): React.JSX.Element {
         await actions.fetchRepos()
         await actions.fetchAllWorktrees()
         const persistedUI = await window.api.ui.get()
+        uiHydrated = hydratePersistedUIAfterStartupRead({
+          persistedUI,
+          cancelled,
+          hydratePersistedUI: actions.hydratePersistedUI
+        })
         const session = await window.api.session.get()
         // Why: settings must be loaded before hydrateWorkspaceSession so that
         // it can read experimentalTerminalDaemon to decide whether to stage
@@ -198,8 +204,6 @@ function App(): React.JSX.Element {
         // s.settings would still be null at hydration time.
         await actions.fetchSettings()
         if (!cancelled) {
-          actions.hydratePersistedUI(persistedUI)
-          uiHydrated = true
           actions.hydrateWorkspaceSession(session)
           actions.hydrateTabsSession(session)
           actions.hydrateEditorSession(session)
@@ -308,9 +312,8 @@ function App(): React.JSX.Element {
         // debounced session writer then serialized that empty state back to
         // orca-data.json, silently erasing the user's saved tabs. The fix is
         // to leave in-memory state untouched and keep hydrationSucceeded
-        // false so the writer stays gated. We still hydrate the persisted UI
-        // with defaults and flip workspaceSessionReady (via
-        // reconnectPersistedTerminals) so the UI can mount without a session.
+        // false so the writer stays gated. We still ensure persistedUIReady and
+        // workspaceSessionReady flip so the UI can mount without a session.
         const stepLabel = error instanceof Error && error.message ? error.message : String(error)
         console.error(
           '[startup] Workspace session hydration failed; leaving disk state untouched:',
@@ -318,32 +321,13 @@ function App(): React.JSX.Element {
           error
         )
         if (!cancelled) {
-          // Why (issue #1158): only hydrate UI with defaults if the real
-          // hydration never ran. If fetchRepos/fetchAllWorktrees/session.get/
-          // fetchSettings threw before `hydratePersistedUI` runs, persistedUIReady
-          // is still false and the UI cannot mount until we hydrate something.
-          // But if the real hydrate already ran and a later step threw,
-          // overwriting with defaults would flow through the debounced UI
-          // writer and clobber ui.json (sidebar width, sort, filters, etc.).
-          if (!uiHydrated) {
-            actions.hydratePersistedUI({
-              lastActiveRepoId: null,
-              lastActiveWorktreeId: null,
-              sidebarWidth: 280,
-              rightSidebarWidth: 350,
-              groupBy: 'none',
-              sortBy: 'name',
-              showActiveOnly: false,
-              filterRepoIds: [],
-              collapsedGroups: [],
-              uiZoomLevel: 0,
-              editorFontZoomLevel: 0,
-              worktreeCardProperties: [...DEFAULT_WORKTREE_CARD_PROPERTIES],
-              statusBarItems: [...DEFAULT_STATUS_BAR_ITEMS],
-              statusBarVisible: true,
-              dismissedUpdateVersion: null,
-              lastUpdateCheckAt: null
-            })
+          // Why (issue #1158): only hydrate UI with defaults if ui.get() never
+          // produced persisted data. If the real UI hydrate already ran and a
+          // later session step threw, defaults would flow through the debounced
+          // UI writer and clobber ui.json (sidebar width, sort, filters, etc.).
+          const fallbackUI = getStartupErrorFallbackUI(uiHydrated)
+          if (fallbackUI) {
+            actions.hydratePersistedUI(fallbackUI)
           }
           // Why (issue #1158): surface a sticky, dismissible toast so the
           // user knows they're in degraded "no-save" mode. Without this, every
