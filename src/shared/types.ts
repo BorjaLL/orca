@@ -204,10 +204,16 @@ export type WorktreeMeta = {
 // a diff so they can be handed back to an AI agent (pasted into a terminal
 // or used to bootstrap a new agent session). Stored on WorktreeMeta so the
 // existing persistence layer writes them to orca-data.json automatically.
+export type DiffCommentSource = 'diff' | 'markdown'
+
 export type DiffComment = {
   id: string
   worktreeId: string
   filePath: string
+  /** Undefined means a legacy diff note. */
+  source?: DiffCommentSource
+  /** Inclusive range start. Must be <= lineNumber when present. */
+  startLine?: number
   lineNumber: number
   body: string
   createdAt: number
@@ -378,7 +384,7 @@ export type BrowserTab = BrowserWorkspace
 export type BrowserSessionProfileScope = 'default' | 'isolated' | 'imported'
 
 export type BrowserSessionProfileSource = {
-  browserFamily: 'chrome' | 'chromium' | 'arc' | 'edge' | 'firefox' | 'safari' | 'manual'
+  browserFamily: 'chrome' | 'chromium' | 'arc' | 'edge' | 'firefox' | 'safari' | 'comet' | 'manual'
   profileName?: string
   importedAt: number
 }
