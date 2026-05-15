@@ -2,6 +2,7 @@
 import type { BrowserWindow } from 'electron'
 import { ipcMain } from 'electron'
 import { rm } from 'fs/promises'
+import { randomUUID } from 'crypto'
 import type { Store } from '../persistence'
 import { isFolderRepo } from '../../shared/repo-kind'
 import { deleteWorktreeHistoryDir } from '../terminal-history'
@@ -61,6 +62,12 @@ import { classifyWorkspaceCreateError } from './workspace-create-error-classifie
 function resolveWorktreeMetaWithDiscoveryStamp(store: Store, worktreeId: string): WorktreeMeta {
   const existing = store.getWorktreeMeta(worktreeId)
   if (existing) {
+    if (!existing.instanceId) {
+      // Why: profiles created before lineage shipped already have WorktreeMeta
+      // rows. Backfill on authoritative discovery so upgraded workspaces can
+      // immediately participate in instance-validated lineage.
+      return store.setWorktreeMeta(worktreeId, { instanceId: randomUUID() })
+    }
     return existing
   }
   return store.setWorktreeMeta(worktreeId, { lastActivityAt: Date.now() })
@@ -98,6 +105,40 @@ function rememberLocalWorktreeRoots(
   ])
 }
 
+function pruneLineageForMissingRepoWorktrees(
+  store: Store,
+  repo: Repo,
+  gitWorktrees: GitWorktreeInfo[]
+): void {
+  if (
+    typeof store.getAllWorktreeLineage !== 'function' ||
+    typeof store.removeWorktreeLineage !== 'function'
+  ) {
+    return
+  }
+  const liveIds = new Set(gitWorktrees.map((worktree) => `${repo.id}::${worktree.path}`))
+  const repoPrefix = `${repo.id}::`
+  for (const [childId, lineage] of Object.entries(store.getAllWorktreeLineage())) {
+    if (childId.startsWith(repoPrefix) && !liveIds.has(childId)) {
+      // Why: path-derived IDs can disappear and later be reused by a different
+      // checkout. Once a successful scan proves the child is gone, drop its
+      // lineage so a future same-path worktree cannot inherit it. Missing
+      // parents stay readable so the UI can show the repairable "Missing
+      // parent" state.
+      store.removeWorktreeLineage(childId)
+    }
+    if (lineage.parentWorktreeId.startsWith(repoPrefix) && !liveIds.has(lineage.parentWorktreeId)) {
+      const parentMeta = store.getWorktreeMeta(lineage.parentWorktreeId)
+      if (!parentMeta || parentMeta.instanceId === lineage.parentWorktreeInstanceId) {
+        // Why: keep the child lineage so the UI can show "Missing parent", but
+        // rotate the absent parent's stale identity once. If a different
+        // checkout later reuses that path, the old lineage stays invalid.
+        store.setWorktreeMeta(lineage.parentWorktreeId, { instanceId: randomUUID() })
+      }
+    }
+  }
+}
+
 export function registerWorktreeHandlers(
   mainWindow: BrowserWindow,
   store: Store,
@@ -111,6 +152,8 @@ export function registerWorktreeHandlers(
   ipcMain.removeHandler('worktrees:resolvePrBase')
   ipcMain.removeHandler('worktrees:remove')
   ipcMain.removeHandler('worktrees:updateMeta')
+  ipcMain.removeHandler('worktrees:listLineage')
+  ipcMain.removeHandler('worktrees:updateLineage')
   ipcMain.removeHandler('worktrees:persistSortOrder')
   ipcMain.removeHandler('hooks:check')
   ipcMain.removeHandler('hooks:createIssueCommandRunner')
@@ -144,6 +187,7 @@ export function registerWorktreeHandlers(
             gitWorktrees = await listRepoWorktrees(repo)
           }
           rememberLocalWorktreeRoots(store, repo, gitWorktrees)
+          pruneLineageForMissingRepoWorktrees(store, repo, gitWorktrees)
           loggedWorktreeListFailures.delete(`${repo.id}:${repo.path}`)
           return gitWorktrees.map((gw) => {
             const worktreeId = `${repo.id}::${gw.path}`
@@ -204,6 +248,7 @@ export function registerWorktreeHandlers(
         gitWorktrees = await listRepoWorktrees(repo)
       }
       rememberLocalWorktreeRoots(store, repo, gitWorktrees)
+      pruneLineageForMissingRepoWorktrees(store, repo, gitWorktrees)
       loggedWorktreeListFailures.delete(`${repo.id}:${repo.path}`)
       return gitWorktrees.map((gw) => {
         const worktreeId = `${repo.id}::${gw.path}`
@@ -617,6 +662,27 @@ export function registerWorktreeHandlers(
       // to fix (clicking a card would clear isUnread → updateMeta →
       // worktrees:changed → fetchWorktrees → sortEpoch++ → re-sort).
       return meta
+    }
+  )
+
+  ipcMain.handle('worktrees:listLineage', async () => {
+    await runtime.hydrateInferredWorktreeLineage()
+    return store.getAllWorktreeLineage()
+  })
+
+  ipcMain.handle(
+    'worktrees:updateLineage',
+    async (_event, args: { worktreeId: string; parentWorktreeId?: string; noParent?: boolean }) => {
+      await runtime.updateManagedWorktreeMeta(args.worktreeId, {
+        lineage:
+          args.noParent === true
+            ? { noParent: true }
+            : args.parentWorktreeId
+              ? { parentWorktree: `id:${args.parentWorktreeId}` }
+              : undefined
+      })
+      notifyWorktreesChanged(mainWindow, parseWorktreeId(args.worktreeId).repoId)
+      return store.getWorktreeLineage(args.worktreeId) ?? null
     }
   )
 

@@ -61,6 +61,7 @@ describe('orca cli worktree awareness', () => {
 
   beforeEach(() => {
     callMock.mockReset()
+    delete process.env.ORCA_TERMINAL_HANDLE
   })
 
   afterEach(() => {
@@ -142,13 +143,16 @@ describe('orca cli worktree awareness', () => {
       worktree: `path:${path.resolve('/tmp/repo/feature')}`,
       displayName: undefined,
       linkedIssue: undefined,
-      comment: 'hello'
+      comment: 'hello',
+      parentWorktree: undefined,
+      noParent: false
     })
   })
 
   it('passes explicit activation through worktree.create', async () => {
     queueFixtures(
       callMock,
+      worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
       okFixture('req_create', {
         worktree: buildWorktree('/tmp/repo/feature', 'feature', 'abc', 'repo-1')
       })
@@ -160,20 +164,24 @@ describe('orca cli worktree awareness', () => {
       '/tmp/repo'
     )
 
-    expect(callMock).toHaveBeenCalledWith('worktree.create', {
+    expect(callMock).toHaveBeenNthCalledWith(2, 'worktree.create', {
       repo: 'id:repo-1',
       name: 'feature',
       baseBranch: undefined,
       linkedIssue: undefined,
       comment: undefined,
       runHooks: false,
-      activate: true
+      activate: true,
+      parentWorktree: `path:${path.resolve('/tmp/repo')}`,
+      noParent: false,
+      callerTerminalHandle: undefined
     })
   })
 
   it('opts into setup and activation when worktree.create runs hooks', async () => {
     queueFixtures(
       callMock,
+      worktreeListFixture([buildWorktree('/tmp/repo', 'main', 'abc', 'repo-1')]),
       okFixture('req_create', {
         worktree: buildWorktree('/tmp/repo/feature', 'feature', 'abc', 'repo-1')
       })
@@ -185,14 +193,17 @@ describe('orca cli worktree awareness', () => {
       '/tmp/repo'
     )
 
-    expect(callMock).toHaveBeenCalledWith('worktree.create', {
+    expect(callMock).toHaveBeenNthCalledWith(2, 'worktree.create', {
       repo: 'id:repo-1',
       name: 'feature',
       baseBranch: undefined,
       linkedIssue: undefined,
       comment: undefined,
       runHooks: true,
-      activate: true
+      activate: true,
+      parentWorktree: `path:${path.resolve('/tmp/repo')}`,
+      noParent: false,
+      callerTerminalHandle: undefined
     })
   })
 
@@ -306,6 +317,30 @@ describe('orca cli worktree awareness', () => {
     // Reset exitCode so subsequent tests don't inherit the failure.
     process.exitCode = priorExitCode
     errSpy.mockRestore()
+  })
+
+  it('passes the caller terminal handle through orchestration task-create', async () => {
+    process.env.ORCA_TERMINAL_HANDLE = 'term_creator'
+    callMock.mockResolvedValueOnce({
+      id: 'req_task_create',
+      ok: true,
+      result: {
+        task: { id: 'task_1', status: 'ready' }
+      },
+      _meta: {
+        runtimeId: 'runtime-1'
+      }
+    })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(['orchestration', 'task-create', '--spec', 'spawn child workspace'], '/tmp/repo')
+
+    expect(callMock).toHaveBeenCalledWith('orchestration.taskCreate', {
+      spec: 'spawn child workspace',
+      deps: undefined,
+      parent: undefined,
+      callerTerminalHandle: 'term_creator'
+    })
   })
 
   it('passes dev mode to injected orchestration dispatches', async () => {

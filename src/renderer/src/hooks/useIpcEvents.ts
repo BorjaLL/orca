@@ -63,6 +63,7 @@ export function useIpcEvents(): void {
         const state = useAppStore.getState()
         const before = new Set((state.worktreesByRepo[data.repoId] ?? []).map((w) => w.id))
         await state.fetchWorktrees(data.repoId)
+        await useAppStore.getState().fetchWorktreeLineage()
         const afterState = useAppStore.getState()
         const after = new Set((afterState.worktreesByRepo[data.repoId] ?? []).map((w) => w.id))
         const removed: string[] = []

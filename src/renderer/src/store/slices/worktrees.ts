@@ -31,6 +31,7 @@ function areWorktreesEqual(current: Worktree[] | undefined, next: Worktree[]): b
     const candidate = next[index]
     return (
       worktree.id === candidate.id &&
+      worktree.instanceId === candidate.instanceId &&
       worktree.repoId === candidate.repoId &&
       worktree.path === candidate.path &&
       worktree.head === candidate.head &&
@@ -70,6 +71,7 @@ function toVisibleTabType(contentType: string): WorkspaceVisibleTabType {
 
 export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> = (set, get) => ({
   worktreesByRepo: {},
+  worktreeLineageById: {},
   activeWorktreeId: null,
   deleteStateByWorktreeId: {},
   baseStatusByWorktreeId: {},
@@ -174,6 +176,33 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
       get().purgeWorktreeTerminalState(stale)
     }
     set({ hasHydratedWorktreePurge: true })
+  },
+
+  fetchWorktreeLineage: async () => {
+    try {
+      const lineage = await window.api.worktrees.listLineage()
+      set({ worktreeLineageById: lineage })
+    } catch (err) {
+      console.error('Failed to fetch worktree lineage:', err)
+    }
+  },
+
+  updateWorktreeLineage: async (worktreeId, args) => {
+    try {
+      const lineage = await window.api.worktrees.updateLineage({ worktreeId, ...args })
+      set((s) => {
+        const next = { ...s.worktreeLineageById }
+        if (lineage) {
+          next[worktreeId] = lineage
+        } else {
+          delete next[worktreeId]
+        }
+        return { worktreeLineageById: next, sortEpoch: s.sortEpoch + 1 }
+      })
+    } catch (err) {
+      console.error('Failed to update worktree lineage:', err)
+      void get().fetchWorktreeLineage()
+    }
   },
 
   updateWorktreeGitIdentity: (worktreeId, identity) => {
@@ -359,6 +388,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
         }
         const nextDeleteState = { ...s.deleteStateByWorktreeId }
         delete nextDeleteState[worktreeId]
+        const nextLineage = { ...s.worktreeLineageById }
+        delete nextLineage[worktreeId]
         // Clean up editor files belonging to this worktree
         const newOpenFiles = s.openFiles.filter((f) => f.worktreeId !== worktreeId)
         const nextBrowserTabsByWorktree = { ...s.browserTabsByWorktree }
@@ -456,6 +487,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             : s.lastVisitedAtByWorktreeId
         return {
           worktreesByRepo: next,
+          worktreeLineageById: nextLineage,
           tabsByWorktree: nextTabs,
           ptyIdsByTabId: nextPtyIdsByTabId,
           runtimePaneTitlesByTabId: nextRuntimePaneTitlesByTabId,
@@ -1043,6 +1075,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
 
       return {
         // Worktree-scoped terminal/tab state
+        worktreeLineageById: omitByWorktree(s.worktreeLineageById),
         tabsByWorktree: omitByWorktree(s.tabsByWorktree),
         terminalLayoutsByTabId: omitByTabId(s.terminalLayoutsByTabId),
         ptyIdsByTabId: omitByTabId(s.ptyIdsByTabId),

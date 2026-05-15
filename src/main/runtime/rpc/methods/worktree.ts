@@ -23,34 +23,63 @@ const WorktreeSelector = z.object({
     .pipe(z.string().min(1, 'Missing worktree selector'))
 })
 
-const WorktreeCreate = z.object({
-  repo: z
-    .unknown()
-    .transform((v) => (typeof v === 'string' ? v : ''))
-    .pipe(z.string().min(1, 'Missing repo selector')),
-  name: OptionalString,
-  baseBranch: OptionalString,
-  linkedIssue: TriStateLinkedIssue,
-  comment: OptionalString,
-  runHooks: OptionalBoolean,
-  activate: OptionalBoolean,
-  setupDecision: z
-    .unknown()
-    .transform((v) =>
-      typeof v === 'string' && (v === 'run' || v === 'skip' || v === 'inherit') ? v : undefined
-    )
-    .pipe(z.union([z.enum(['run', 'skip', 'inherit']), z.undefined()]))
-    .optional(),
-  // Why: mobile clients pass a startup command (e.g. 'claude') so the first
-  // terminal pane launches the selected agent instead of an idle shell.
-  startupCommand: OptionalString
-})
+const WorktreeCreate = z
+  .object({
+    repo: z
+      .unknown()
+      .transform((v) => (typeof v === 'string' ? v : ''))
+      .pipe(z.string().min(1, 'Missing repo selector')),
+    name: OptionalString,
+    baseBranch: OptionalString,
+    linkedIssue: TriStateLinkedIssue,
+    comment: OptionalString,
+    runHooks: OptionalBoolean,
+    activate: OptionalBoolean,
+    parentWorktree: OptionalString,
+    noParent: OptionalBoolean,
+    callerTerminalHandle: OptionalString,
+    orchestrationContext: z
+      .object({
+        parentWorktreeId: OptionalString,
+        orchestrationRunId: OptionalString,
+        taskId: OptionalString,
+        coordinatorHandle: OptionalString
+      })
+      .optional(),
+    setupDecision: z
+      .unknown()
+      .transform((v) =>
+        typeof v === 'string' && (v === 'run' || v === 'skip' || v === 'inherit') ? v : undefined
+      )
+      .pipe(z.union([z.enum(['run', 'skip', 'inherit']), z.undefined()]))
+      .optional(),
+    // Why: mobile clients pass a startup command (e.g. 'claude') so the first
+    // terminal pane launches the selected agent instead of an idle shell.
+    startupCommand: OptionalString
+  })
+  .superRefine((params, ctx) => {
+    if (params.parentWorktree && params.noParent === true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Choose either --parent-worktree or --no-parent, not both.'
+      })
+    }
+  })
 
 const WorktreeSet = WorktreeSelector.extend({
   displayName: OptionalString,
   linkedIssue: TriStateLinkedIssue,
   comment: OptionalString,
-  isPinned: OptionalBoolean
+  isPinned: OptionalBoolean,
+  parentWorktree: OptionalString,
+  noParent: OptionalBoolean
+}).superRefine((params, ctx) => {
+  if (params.parentWorktree && params.noParent === true) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Choose either --parent-worktree or --no-parent, not both.'
+    })
+  }
 })
 
 const WorktreeRemove = WorktreeSelector.extend({
@@ -99,7 +128,13 @@ export const WORKTREE_METHODS: RpcMethod[] = [
         runHooks: params.runHooks === true,
         activate: params.activate === true,
         setupDecision: params.setupDecision,
-        startup: params.startupCommand ? { command: params.startupCommand } : undefined
+        startup: params.startupCommand ? { command: params.startupCommand } : undefined,
+        lineage: {
+          parentWorktree: params.parentWorktree,
+          noParent: params.noParent === true,
+          callerTerminalHandle: params.callerTerminalHandle,
+          orchestrationContext: params.orchestrationContext
+        }
       })
   }),
   defineMethod({
@@ -110,7 +145,14 @@ export const WORKTREE_METHODS: RpcMethod[] = [
         displayName: params.displayName,
         linkedIssue: params.linkedIssue,
         comment: params.comment,
-        isPinned: params.isPinned
+        isPinned: params.isPinned,
+        lineage:
+          params.parentWorktree || params.noParent === true
+            ? {
+                parentWorktree: params.parentWorktree,
+                noParent: params.noParent === true
+              }
+            : undefined
       })
     })
   }),

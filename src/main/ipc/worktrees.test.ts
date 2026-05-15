@@ -154,7 +154,9 @@ describe('registerWorktreeHandlers', () => {
     getSettings: vi.fn(),
     getWorktreeMeta: vi.fn(),
     setWorktreeMeta: vi.fn(),
-    removeWorktreeMeta: vi.fn()
+    removeWorktreeMeta: vi.fn(),
+    getAllWorktreeLineage: vi.fn(),
+    removeWorktreeLineage: vi.fn()
   }
   let runtimeStub: {
     resolveRemoteTrackingBase: ReturnType<typeof vi.fn>
@@ -204,6 +206,8 @@ describe('registerWorktreeHandlers', () => {
       store.getWorktreeMeta,
       store.setWorktreeMeta,
       store.removeWorktreeMeta,
+      store.getAllWorktreeLineage,
+      store.removeWorktreeLineage,
       killAllProcessesForWorktreeMock,
       getLocalPtyProviderMock
     ]) {
@@ -242,6 +246,7 @@ describe('registerWorktreeHandlers', () => {
     })
     store.getWorktreeMeta.mockReturnValue(undefined)
     store.setWorktreeMeta.mockReturnValue({})
+    store.getAllWorktreeLineage.mockReturnValue({})
     getGitUsernameMock.mockReturnValue('')
     getDefaultBaseRefMock.mockReturnValue('origin/main')
     getDefaultRemoteMock.mockResolvedValue('origin')
@@ -586,6 +591,104 @@ describe('registerWorktreeHandlers', () => {
     })
   })
 
+  it('prunes stale child lineage after a successful SSH worktree scan proves the child is missing', async () => {
+    const repo = {
+      id: 'repo-ssh',
+      path: '/remote/repo',
+      displayName: 'ssh',
+      badgeColor: '#000',
+      addedAt: 0,
+      connectionId: 'conn-1'
+    }
+    const provider = {
+      listWorktrees: vi.fn().mockResolvedValue([
+        {
+          path: '/remote/live',
+          head: 'abc123',
+          branch: 'refs/heads/live',
+          isBare: false,
+          isMainWorktree: false
+        },
+        {
+          path: '/remote/live-child',
+          head: 'def456',
+          branch: 'refs/heads/live-child',
+          isBare: false,
+          isMainWorktree: false
+        }
+      ])
+    }
+    store.getRepos.mockReturnValue([repo])
+    store.getRepo.mockReturnValue(repo)
+    getSshGitProviderMock.mockReturnValue(provider)
+    store.getAllWorktreeLineage.mockReturnValue({
+      'repo-ssh::/remote/missing-child': {
+        parentWorktreeId: 'repo-ssh::/remote/live'
+      },
+      'repo-ssh::/remote/live-child': {
+        parentWorktreeId: 'repo-ssh::/remote/missing-parent',
+        parentWorktreeInstanceId: 'old-parent-instance'
+      },
+      'repo-ssh::/remote/live': {
+        parentWorktreeId: 'other-repo::/elsewhere'
+      }
+    })
+    store.getWorktreeMeta.mockImplementation((worktreeId: string) =>
+      worktreeId === 'repo-ssh::/remote/missing-parent'
+        ? { instanceId: 'old-parent-instance' }
+        : undefined
+    )
+
+    await handlers['worktrees:list'](null, { repoId: 'repo-ssh' })
+
+    expect(store.removeWorktreeLineage).toHaveBeenCalledWith('repo-ssh::/remote/missing-child')
+    expect(store.removeWorktreeLineage).not.toHaveBeenCalledWith('repo-ssh::/remote/live-child')
+    expect(store.removeWorktreeLineage).not.toHaveBeenCalledWith('repo-ssh::/remote/live')
+    expect(store.setWorktreeMeta).toHaveBeenCalledWith(
+      'repo-ssh::/remote/missing-parent',
+      expect.objectContaining({ instanceId: expect.any(String) })
+    )
+  })
+
+  it('does not repeatedly rotate already-invalid missing parent metadata', async () => {
+    const repo = {
+      id: 'repo-ssh',
+      path: '/remote/repo',
+      displayName: 'ssh',
+      badgeColor: '#000',
+      addedAt: 0,
+      connectionId: 'conn-1'
+    }
+    const provider = {
+      listWorktrees: vi.fn().mockResolvedValue([
+        {
+          path: '/remote/live-child',
+          head: 'def456',
+          branch: 'refs/heads/live-child',
+          isBare: false,
+          isMainWorktree: false
+        }
+      ])
+    }
+    store.getRepos.mockReturnValue([repo])
+    store.getRepo.mockReturnValue(repo)
+    getSshGitProviderMock.mockReturnValue(provider)
+    store.getAllWorktreeLineage.mockReturnValue({
+      'repo-ssh::/remote/live-child': {
+        parentWorktreeId: 'repo-ssh::/remote/missing-parent',
+        parentWorktreeInstanceId: 'old-parent-instance'
+      }
+    })
+    store.getWorktreeMeta.mockReturnValue({ instanceId: 'rotated-parent-instance' })
+
+    await handlers['worktrees:list'](null, { repoId: 'repo-ssh' })
+
+    expect(store.setWorktreeMeta).not.toHaveBeenCalledWith(
+      'repo-ssh::/remote/missing-parent',
+      expect.objectContaining({ instanceId: expect.any(String) })
+    )
+  })
+
   it('does not await a cold fetch when the remote-tracking base exists locally', async () => {
     const remoteBase = {
       remote: 'origin',
@@ -777,6 +880,7 @@ describe('registerWorktreeHandlers', () => {
       comment: '',
       linkedIssue: null,
       linkedPR: null,
+      instanceId: 'existing-instance',
       isArchived: false,
       isUnread: false,
       isPinned: false,
@@ -791,6 +895,44 @@ describe('registerWorktreeHandlers', () => {
 
     expect(store.setWorktreeMeta).not.toHaveBeenCalled()
     expect(listed[0].lastActivityAt).toBe(42)
+  })
+
+  it('backfills instanceId on discovery for persisted metadata from older profiles', async () => {
+    listWorktreesMock.mockResolvedValue([
+      {
+        path: '/workspace/existing-wt',
+        head: 'abc123',
+        branch: 'refs/heads/feature',
+        isBare: false,
+        isMainWorktree: false
+      }
+    ])
+    store.getWorktreeMeta.mockReturnValue({
+      displayName: '',
+      comment: '',
+      linkedIssue: null,
+      linkedPR: null,
+      isArchived: false,
+      isUnread: false,
+      isPinned: false,
+      sortOrder: 0,
+      lastActivityAt: 42
+    })
+    store.setWorktreeMeta.mockReturnValue({
+      instanceId: 'new-instance',
+      lastActivityAt: 42
+    })
+
+    const listed = (await handlers['worktrees:list'](null, { repoId: 'repo-1' })) as {
+      id: string
+      instanceId?: string
+    }[]
+
+    expect(store.setWorktreeMeta).toHaveBeenCalledWith(
+      'repo-1::/workspace/existing-wt',
+      expect.objectContaining({ instanceId: expect.any(String) })
+    )
+    expect(listed[0].instanceId).toBe('new-instance')
   })
 
   it('stamps lastActivityAt on first discovery for folder-mode repos', async () => {

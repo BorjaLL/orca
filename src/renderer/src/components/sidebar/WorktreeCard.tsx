@@ -12,7 +12,8 @@ import {
   CircleCheck,
   CircleX,
   Server,
-  ServerOff
+  ServerOff,
+  Workflow
 } from 'lucide-react'
 import StatusIndicator from './StatusIndicator'
 import CacheTimer from './CacheTimer'
@@ -52,6 +53,8 @@ type WorktreeCardProps = {
   isMultiSelected?: boolean
   selectedWorktrees?: readonly Worktree[]
   hideRepoBadge?: boolean
+  parentLabel?: string
+  lineageState?: 'valid' | 'missing'
   onSelectionGesture?: (event: React.MouseEvent<HTMLDivElement>, worktreeId: string) => boolean
   onContextMenuSelect?: (event: React.MouseEvent<HTMLDivElement>) => readonly Worktree[]
 }
@@ -69,7 +72,9 @@ const WorktreeCard = React.memo(function WorktreeCard({
   selectedWorktrees,
   onSelectionGesture,
   onContextMenuSelect,
-  hideRepoBadge
+  hideRepoBadge,
+  parentLabel,
+  lineageState
 }: WorktreeCardProps) {
   const openModal = useAppStore((s) => s.openModal)
   const updateWorktreeMeta = useAppStore((s) => s.updateWorktreeMeta)
@@ -646,6 +651,23 @@ const WorktreeCard = React.memo(function WorktreeCard({
           )}
 
           <CacheTimer worktreeId={worktree.id} />
+
+          {parentLabel && (
+            <Badge
+              variant="outline"
+              className={cn(
+                'h-[16px] px-1.5 text-[10px] font-medium rounded shrink-0 gap-1 leading-none',
+                lineageState === 'missing'
+                  ? 'text-muted-foreground border-border bg-muted/40'
+                  : 'text-muted-foreground border-border bg-accent/50'
+              )}
+            >
+              <Workflow className="size-2.5" />
+              <span className="max-w-[7rem] truncate">
+                {lineageState === 'missing' ? 'Missing parent' : `from ${parentLabel}`}
+              </span>
+            </Badge>
+          )}
         </div>
 
         {/* Meta section: Issue / hosted review / Comment

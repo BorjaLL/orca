@@ -60,6 +60,18 @@ export function formatCliError(error: unknown): string {
   ) {
     return `${message}\nOrca is not running. Run 'orca open' first.`
   }
+  if (error instanceof RuntimeRpcFailureError) {
+    const data = error.response.error.data
+    const nextSteps =
+      data && typeof data === 'object' && Array.isArray((data as { nextSteps?: unknown }).nextSteps)
+        ? (data as { nextSteps: unknown[] }).nextSteps.filter(
+            (step): step is string => typeof step === 'string'
+          )
+        : []
+    if (nextSteps.length > 0) {
+      return `${message}\n${nextSteps.map((step) => `Next step: ${step}`).join('\n')}`
+    }
+  }
   return message
 }
 

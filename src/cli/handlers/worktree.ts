@@ -1,7 +1,8 @@
 import type {
   RuntimeWorktreeListResult,
   RuntimeWorktreePsResult,
-  RuntimeWorktreeRecord
+  RuntimeWorktreeRecord,
+  RuntimeWorktreeCreateResult
 } from '../../shared/runtime-types'
 import type { CommandHandler } from '../dispatch'
 import { formatWorktreeList, formatWorktreePs, formatWorktreeShow, printResult } from '../format'
@@ -21,6 +22,30 @@ type HookWarningResult = {
 function printHookWarning(result: HookWarningResult, json: boolean): void {
   if (!json && result.warning) {
     console.error(`warning: ${result.warning}`)
+  }
+}
+
+function printLineageSummary(result: RuntimeWorktreeCreateResult, json: boolean): void {
+  if (json) {
+    return
+  }
+  for (const warning of result.warnings ?? []) {
+    console.error(`warning: ${warning.message}`)
+  }
+  if (result.lineage) {
+    const source =
+      result.lineage.capture.source === 'terminal-context'
+        ? 'terminal'
+        : result.lineage.capture.source === 'orchestration-context'
+          ? 'orchestration'
+          : result.lineage.capture.source === 'explicit-cli-flag'
+            ? 'explicit flag'
+            : 'manual action'
+    console.error(
+      `parent: ${result.lineage.parentWorktreeId} (${result.lineage.capture.confidence} from ${source})`
+    )
+  } else {
+    console.error('parent: none')
   }
 }
 
@@ -50,20 +75,38 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
     })
     printResult(result, json, formatWorktreeShow)
   },
-  'worktree create': async ({ flags, client, json }) => {
-    const result = await client.call<{ worktree: RuntimeWorktreeRecord; warning?: string }>(
-      'worktree.create',
-      {
-        repo: getRequiredStringFlag(flags, 'repo'),
-        name: getRequiredStringFlag(flags, 'name'),
-        baseBranch: getOptionalStringFlag(flags, 'base-branch'),
-        linkedIssue: getOptionalNumberFlag(flags, 'issue'),
-        comment: getOptionalStringFlag(flags, 'comment'),
-        runHooks: flags.get('run-hooks') === true,
-        activate: flags.get('activate') === true || flags.get('run-hooks') === true
+  'worktree create': async ({ flags, client, cwd, json }) => {
+    const callerTerminalHandle =
+      typeof process.env.ORCA_TERMINAL_HANDLE === 'string' &&
+      process.env.ORCA_TERMINAL_HANDLE.length > 0
+        ? process.env.ORCA_TERMINAL_HANDLE
+        : undefined
+    const explicitParentWorktree = getOptionalStringFlag(flags, 'parent-worktree')
+    const noParent = flags.get('no-parent') === true
+    let parentWorktree = explicitParentWorktree
+    if (!parentWorktree && !noParent && !callerTerminalHandle) {
+      try {
+        // Why: agent shells can lose ORCA_TERMINAL_HANDLE while still running
+        // inside an Orca worktree. Cwd keeps CLI-created children nestable.
+        parentWorktree = await resolveCurrentWorktreeSelector(cwd, client)
+      } catch {
+        parentWorktree = undefined
       }
-    )
+    }
+    const result = await client.call<RuntimeWorktreeCreateResult>('worktree.create', {
+      repo: getRequiredStringFlag(flags, 'repo'),
+      name: getRequiredStringFlag(flags, 'name'),
+      baseBranch: getOptionalStringFlag(flags, 'base-branch'),
+      linkedIssue: getOptionalNumberFlag(flags, 'issue'),
+      comment: getOptionalStringFlag(flags, 'comment'),
+      runHooks: flags.get('run-hooks') === true,
+      activate: flags.get('activate') === true || flags.get('run-hooks') === true,
+      parentWorktree,
+      noParent,
+      callerTerminalHandle
+    })
     printHookWarning(result.result, json)
+    printLineageSummary(result.result, json)
     printResult(result, json, formatWorktreeShow)
   },
   'worktree set': async ({ flags, client, cwd, json }) => {
@@ -71,7 +114,9 @@ export const WORKTREE_HANDLERS: Record<string, CommandHandler> = {
       worktree: await getRequiredWorktreeSelector(flags, 'worktree', cwd, client),
       displayName: getOptionalStringFlag(flags, 'display-name'),
       linkedIssue: getOptionalNullableNumberFlag(flags, 'issue'),
-      comment: getOptionalStringFlag(flags, 'comment')
+      comment: getOptionalStringFlag(flags, 'comment'),
+      parentWorktree: getOptionalStringFlag(flags, 'parent-worktree'),
+      noParent: flags.get('no-parent') === true
     })
     printResult(result, json, formatWorktreeShow)
   },

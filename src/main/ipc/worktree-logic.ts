@@ -175,6 +175,7 @@ export function mergeWorktree(
   const branchShort = git.branch.replace(/^refs\/heads\//, '')
   return {
     id: `${repoId}::${git.path}`,
+    ...(meta?.instanceId !== undefined ? { instanceId: meta.instanceId } : {}),
     repoId,
     path: git.path,
     head: git.head,

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- Why: shared type definitions for all runtime RPC methods live in one file for discoverability and import simplicity. */
-import type { TerminalPaneLayoutNode } from './types'
+import type { TerminalPaneLayoutNode, WorktreeLineage, WorktreeLineageWarning } from './types'
 import type { BrowserSessionProfile, GitWorktreeInfo, Repo } from './types'
 import type {
   RuntimeMarkdownReadTabResult,
@@ -294,6 +294,7 @@ export type RuntimeWorktreeStatus = 'active' | 'working' | 'permission' | 'done'
 
 export type RuntimeWorktreeRecord = {
   id: string
+  instanceId?: string
   repoId: string
   path: string
   branch: string
@@ -301,6 +302,13 @@ export type RuntimeWorktreeRecord = {
   git: GitWorktreeInfo
   displayName: string
   comment: string
+}
+
+export type RuntimeWorktreeCreateResult = {
+  worktree: RuntimeWorktreeRecord
+  lineage: WorktreeLineage | null
+  warnings: WorktreeLineageWarning[]
+  warning?: string
 }
 
 export type RuntimeWorktreePsResult = {

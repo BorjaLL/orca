@@ -18,15 +18,19 @@ import {
   Pencil,
   Pin,
   PinOff,
-  Trash2
+  Trash2,
+  Unlink,
+  Workflow
 } from 'lucide-react'
 import { useAppStore } from '@/store'
-import { useRepoById, useRepoMap } from '@/store/selectors'
+import { useRepoById, useRepoMap, useWorktreeMap } from '@/store/selectors'
 import { cn } from '@/lib/utils'
 import type { Worktree } from '../../../../shared/types'
 import { isFolderRepo } from '../../../../shared/repo-kind'
 import { runWorktreeBatchDelete, runWorktreeDelete } from './delete-worktree-flow'
 import { runSleepWorktrees } from './sleep-worktree-flow'
+import { activateAndRevealWorktree } from '@/lib/worktree-activation'
+import { getLineageRenderInfo } from './worktree-list-groups'
 
 type Props = {
   worktree: Worktree
@@ -56,6 +60,10 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
   const isDeleting = deleteState?.isDeleting ?? false
   const isFolder = repo ? isFolderRepo(repo) : false
   const repoMap = useRepoMap()
+  const worktreeMap = useWorktreeMap()
+  const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
+  const worktreeLineageById = useAppStore((s) => s.worktreeLineageById)
+  const updateWorktreeLineage = useAppStore((s) => s.updateWorktreeLineage)
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
   const ptyIdsByTabId = useAppStore((s) => s.ptyIdsByTabId)
   const browserTabsByWorktree = useAppStore((s) => s.browserTabsByWorktree)
@@ -92,6 +100,17 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
     isMultiContext && batchDeleteWorktrees.length > 0
       ? `Delete ${batchDeleteWorktrees.length} Workspace${batchDeleteWorktrees.length === 1 ? '' : 's'}`
       : 'Delete Selected'
+  const lineage = worktreeLineageById[worktree.id]
+  // Why: path-derived worktree IDs can be reused. The menu must honor the same
+  // instance check as grouped rows before offering navigation to a parent.
+  const lineageInfo = useMemo(
+    () => getLineageRenderInfo(worktree, worktreeLineageById, worktreeMap),
+    [worktree, worktreeLineageById, worktreeMap]
+  )
+  const validParentWorktreeId = lineageInfo.state === 'valid' ? lineageInfo.parent.id : null
+  const hasAnyContextLineage = activeContextWorktrees.some((item) => worktreeLineageById[item.id])
+  const canGroupUnderActive =
+    activeWorktreeId != null && activeContextWorktrees.every((item) => item.id !== activeWorktreeId)
 
   useEffect(() => {
     const closeMenu = (): void => setMenuOpen(false)
@@ -206,6 +225,29 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
     worktree.repoId
   ])
 
+  const handleOpenParent = useCallback(() => {
+    if (validParentWorktreeId) {
+      activateAndRevealWorktree(validParentWorktreeId)
+    }
+  }, [validParentWorktreeId])
+
+  const handleGroupUnderActive = useCallback(() => {
+    if (!activeWorktreeId) {
+      return
+    }
+    void Promise.all(
+      activeContextWorktrees.map((item) =>
+        updateWorktreeLineage(item.id, { parentWorktreeId: activeWorktreeId })
+      )
+    )
+  }, [activeContextWorktrees, activeWorktreeId, updateWorktreeLineage])
+
+  const handleRemoveParentLink = useCallback(() => {
+    void Promise.all(
+      activeContextWorktrees.map((item) => updateWorktreeLineage(item.id, { noParent: true }))
+    )
+  }, [activeContextWorktrees, updateWorktreeLineage])
+
   return (
     <>
       <div
@@ -274,6 +316,45 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
                 <MessageSquare className="size-3.5" />
                 {worktree.comment ? 'Edit Comment' : 'Add Comment'}
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={handleOpenParent}
+                disabled={isDeleting || !validParentWorktreeId}
+              >
+                <Workflow className="size-3.5" />
+                Open Parent Workspace
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={handleGroupUnderActive}
+                disabled={isDeleting || !canGroupUnderActive}
+              >
+                <Workflow className="size-3.5" />
+                Group under Active Workspace
+              </DropdownMenuItem>
+              {lineage && (
+                <DropdownMenuItem onSelect={handleRemoveParentLink} disabled={isDeleting}>
+                  <Unlink className="size-3.5" />
+                  Remove Parent Link
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+            </>
+          )}
+          {isMultiContext && (
+            <>
+              <DropdownMenuItem
+                onSelect={handleGroupUnderActive}
+                disabled={deletingContext || !canGroupUnderActive}
+              >
+                <Workflow className="size-3.5" />
+                Group under Active Workspace
+              </DropdownMenuItem>
+              {hasAnyContextLineage && (
+                <DropdownMenuItem onSelect={handleRemoveParentLink} disabled={deletingContext}>
+                  <Unlink className="size-3.5" />
+                  Remove Parent Links
+                </DropdownMenuItem>
+              )}
               <DropdownMenuSeparator />
             </>
           )}

@@ -108,6 +108,7 @@ export type GitWorktreeInfo = {
 // ─── Worktree (app-level, enriched) ──────────────────────────────────
 export type Worktree = {
   id: string // `${repoId}::${path}`
+  instanceId?: string
   repoId: string
   displayName: string
   comment: string
@@ -158,6 +159,8 @@ export type GitPushTarget = {
 
 // ─── Worktree metadata (persisted user-authored fields only) ─────────
 export type WorktreeMeta = {
+  /** Immutable per-workspace-instance ID used to reject stale lineage after path reuse. */
+  instanceId?: string
   displayName: string
   comment: string
   linkedIssue: number | null
@@ -184,6 +187,44 @@ export type WorktreeMeta = {
   /** See {@link Worktree.pushTarget}. Persisted so refreshed worktree lists keep the target. */
   pushTarget?: GitPushTarget
   diffComments?: DiffComment[]
+}
+
+export type WorktreeLineageOrigin = 'orchestration' | 'cli' | 'manual'
+export type WorktreeLineageCaptureConfidence = 'explicit' | 'inferred'
+export type WorktreeLineageCaptureSource =
+  | 'explicit-cli-flag'
+  | 'terminal-context'
+  | 'orchestration-context'
+  | 'manual-action'
+
+export type WorktreeLineageCapture = {
+  source: WorktreeLineageCaptureSource
+  confidence: WorktreeLineageCaptureConfidence
+}
+
+export type WorktreeLineage = {
+  worktreeId: string
+  worktreeInstanceId: string
+  parentWorktreeId: string
+  parentWorktreeInstanceId: string
+  origin: WorktreeLineageOrigin
+  capture: WorktreeLineageCapture
+  orchestrationRunId?: string
+  taskId?: string
+  coordinatorHandle?: string
+  createdByTerminalHandle?: string
+  createdAt: number
+}
+
+export type WorktreeLineageWarningCode =
+  | 'LINEAGE_PARENT_CONTEXT_MISSING'
+  | 'LINEAGE_PARENT_CONTEXT_CONFLICT'
+  | 'LINEAGE_PARENT_INSTANCE_STALE'
+
+export type WorktreeLineageWarning = {
+  code: WorktreeLineageWarningCode
+  message: string
+  details?: Record<string, unknown>
 }
 
 // ─── Diff line comments ──────────────────────────────────────────────
@@ -955,6 +996,8 @@ export type CreateWorktreeArgs = {
 
 export type CreateWorktreeResult = {
   worktree: Worktree
+  lineage?: WorktreeLineage | null
+  warnings?: WorktreeLineageWarning[]
   setup?: WorktreeSetupLaunch
   warning?: string
   initialBaseStatus?: WorktreeBaseStatusEvent
@@ -1554,6 +1597,7 @@ export type PersistedUIState = {
   sidebarWidth: number
   rightSidebarWidth: number
   groupBy: 'none' | 'repo' | 'pr-status'
+  showWorkspaceLineage?: boolean
   sortBy: 'name' | 'smart' | 'recent' | 'repo'
   showActiveOnly: boolean
   /** Hide the repo's original checked-out branch from workspace navigation
@@ -1741,6 +1785,7 @@ export type PersistedState = {
    *  presets are managed from the new-workspace composer and repo settings. */
   sparsePresetsByRepo: Record<string, SparsePreset[]>
   worktreeMeta: Record<string, WorktreeMeta>
+  worktreeLineageById: Record<string, WorktreeLineage>
   settings: GlobalSettings
   ui: PersistedUIState
   githubCache: {

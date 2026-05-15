@@ -1,7 +1,7 @@
 /* eslint-disable max-lines */
 import React, { useMemo, useCallback, useRef, useState, useEffect, useLayoutEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { ChevronDown, CircleX, Plus } from 'lucide-react'
+import { ChevronDown, ChevronRight, CircleX, Plus } from 'lucide-react'
 import { useAppStore } from '@/store'
 import {
   getAllWorktreesFromState,
@@ -13,7 +13,7 @@ import WorktreeCard from './WorktreeCard'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import type { Worktree, Repo } from '../../../../shared/types'
+import type { Worktree, Repo, WorktreeLineage } from '../../../../shared/types'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import { buildWorktreeComparator } from './smart-sort'
 import {
@@ -29,7 +29,8 @@ import {
   ALL_GROUP_KEY,
   PINNED_GROUP_KEY,
   buildRows,
-  getGroupKeyForWorktree
+  getGroupKeyForWorktree,
+  getLineageGroupKey
 } from './worktree-list-groups'
 import {
   computeClearFilterActions,
@@ -76,10 +77,91 @@ function getWorktreeOptionId(worktreeId: string): string {
   return `worktree-list-option-${encodeURIComponent(worktreeId)}`
 }
 
+function LineageGuides({ row }: { row: Extract<Row, { type: 'item' }> }) {
+  if (row.depth <= 0) {
+    return null
+  }
+
+  const step = 18
+  const lineX = 10
+  const currentX = (row.depth - 1) * step + lineX
+
+  return (
+    <div className="pointer-events-none absolute inset-y-0 left-0 text-sidebar-border" aria-hidden>
+      {row.lineageTrail
+        .slice(0, -1)
+        .map((continues, index) =>
+          continues ? (
+            <span
+              key={index}
+              className="absolute top-0 bottom-0 w-px bg-current/80"
+              style={{ left: `${index * step + lineX}px` }}
+            />
+          ) : null
+        )}
+      <span
+        className="absolute top-0 w-px bg-current/80"
+        style={{
+          left: `${currentX}px`,
+          height: row.isLastLineageChild ? '50%' : '100%'
+        }}
+      />
+      <span
+        className="absolute h-px bg-current/80"
+        style={{
+          left: `${currentX}px`,
+          top: '50%',
+          width: '12px'
+        }}
+      />
+    </div>
+  )
+}
+
+function LineageDisclosure({
+  row,
+  onToggle
+}: {
+  row: Extract<Row, { type: 'item' }>
+  onToggle: (event: React.MouseEvent<HTMLButtonElement>) => void
+}) {
+  if (!row.lineageGroupKey || row.lineageChildCount <= 0) {
+    return null
+  }
+
+  const label = `${row.lineageCollapsed ? 'Show' : 'Hide'} ${row.lineageChildCount} child ${
+    row.lineageChildCount === 1 ? 'workspace' : 'workspaces'
+  }`
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          className="absolute right-2 top-2 z-10 size-5 rounded-md bg-sidebar/80 text-muted-foreground opacity-80 shadow-sm ring-1 ring-sidebar-border/70 backdrop-blur-sm transition-colors hover:bg-sidebar-accent hover:text-foreground hover:opacity-100 focus-visible:opacity-100"
+          aria-label={label}
+          aria-expanded={!row.lineageCollapsed}
+          onClick={onToggle}
+        >
+          <ChevronRight
+            className={cn('size-3 transition-transform', !row.lineageCollapsed && 'rotate-90')}
+          />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>
+        {row.lineageCollapsed ? 'Show child workspaces' : 'Hide child workspaces'}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 type VirtualizedWorktreeViewportProps = {
   rows: Row[]
   activeWorktreeId: string | null
   groupBy: 'none' | 'repo' | 'pr-status'
+  showWorkspaceLineage: boolean
   toggleGroup: (key: string) => void
   collapsedGroups: Set<string>
   handleCreateForRepo: (repoId: string) => void
@@ -95,6 +177,8 @@ type VirtualizedWorktreeViewportProps = {
     worktree: Worktree
   ) => readonly Worktree[]
   repoMap: Map<string, Repo>
+  worktreeMap: Map<string, Worktree>
+  worktreeLineageById: Record<string, WorktreeLineage>
   repoOrder: Map<string, number>
   // The full canonical state.repos id ordering — the drag controller commits
   // permutations of this list, even when some repos aren't currently visible
@@ -116,6 +200,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   rows,
   activeWorktreeId,
   groupBy,
+  showWorkspaceLineage,
   toggleGroup,
   collapsedGroups,
   handleCreateForRepo,
@@ -128,6 +213,8 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
   onSelectionGesture,
   onContextMenuSelect,
   repoMap,
+  worktreeMap,
+  worktreeLineageById,
   repoOrder,
   allRepoIds,
   reorderRepos,
@@ -222,6 +309,29 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
 
     {
       const targetWorktree = worktrees.find((w) => w.id === pendingRevealWorktreeId)
+      if (targetWorktree && showWorkspaceLineage && !targetWorktree.isPinned) {
+        const seen = new Set<string>()
+        let current: Worktree | undefined = targetWorktree
+        while (current && !seen.has(current.id)) {
+          seen.add(current.id)
+          const lineage = worktreeLineageById[current.id]
+          const parent = lineage ? worktreeMap.get(lineage.parentWorktreeId) : undefined
+          if (
+            !lineage ||
+            !parent ||
+            current.instanceId !== lineage.worktreeInstanceId ||
+            parent.instanceId !== lineage.parentWorktreeInstanceId
+          ) {
+            break
+          }
+          const lineageGroupKey = getLineageGroupKey(parent.id)
+          if (collapsedGroups.has(lineageGroupKey)) {
+            toggleGroup(lineageGroupKey)
+          }
+          current = parent
+        }
+      }
+
       if (targetWorktree?.isPinned) {
         // Why: pinned worktrees live in the dedicated "Pinned" section regardless
         // of their PR-status / repo group. Only uncollapse the Pinned header
@@ -267,6 +377,9 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
     worktrees,
     repoMap,
     prCache,
+    worktreeLineageById,
+    worktreeMap,
+    showWorkspaceLineage,
     rows,
     virtualizer,
     clearPendingRevealWorktreeId,
@@ -300,7 +413,10 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         repoMap,
         prCache,
         new Set<string>(),
-        repoOrder
+        repoOrder,
+        worktreeLineageById,
+        worktreeMap,
+        showWorkspaceLineage
       ).filter((r): r is Extract<Row, { type: 'item' }> => r.type === 'item')
       if (worktreeRows.length === 0) {
         return
@@ -333,7 +449,19 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
         virtualizer.scrollToIndex(rowIndex, { align: 'auto' })
       }
     },
-    [rows, activeWorktreeId, virtualizer, groupBy, worktrees, repoMap, prCache, repoOrder]
+    [
+      rows,
+      activeWorktreeId,
+      virtualizer,
+      groupBy,
+      worktrees,
+      repoMap,
+      prCache,
+      repoOrder,
+      worktreeLineageById,
+      worktreeMap,
+      showWorkspaceLineage
+    ]
   )
 
   useEffect(() => {
@@ -493,7 +621,7 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
                     />
                   </div>
 
-                  {row.repo ? (
+                  {row.repo && groupBy === 'repo' ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -538,16 +666,36 @@ const VirtualizedWorktreeViewport = React.memo(function VirtualizedWorktreeViewp
               className="absolute left-0 right-0"
               style={{ transform: `translateY(${vItem.start}px)` }}
             >
-              <WorktreeCard
-                worktree={row.worktree}
-                repo={row.repo}
-                isActive={activeWorktreeId === row.worktree.id}
-                isMultiSelected={selectedWorktreeIds.has(row.worktree.id)}
-                selectedWorktrees={selectedWorktrees}
-                onSelectionGesture={onSelectionGesture}
-                onContextMenuSelect={(event) => onContextMenuSelect(event, row.worktree)}
-                hideRepoBadge={groupBy === 'repo'}
-              />
+              <div
+                className="group/lineage-row relative"
+                style={{ paddingLeft: row.depth > 0 ? `${row.depth * 18}px` : undefined }}
+              >
+                <LineageGuides row={row} />
+                <WorktreeCard
+                  worktree={row.worktree}
+                  repo={row.repo}
+                  isActive={activeWorktreeId === row.worktree.id}
+                  isMultiSelected={selectedWorktreeIds.has(row.worktree.id)}
+                  selectedWorktrees={selectedWorktrees}
+                  onSelectionGesture={onSelectionGesture}
+                  onContextMenuSelect={(event) => onContextMenuSelect(event, row.worktree)}
+                  hideRepoBadge={groupBy === 'repo'}
+                  parentLabel={
+                    row.depth > 0 && row.lineageState === 'valid' ? undefined : row.parentLabel
+                  }
+                  lineageState={row.lineageState}
+                />
+                <LineageDisclosure
+                  row={row}
+                  onToggle={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    if (row.lineageGroupKey) {
+                      toggleGroup(row.lineageGroupKey)
+                    }
+                  }}
+                />
+              </div>
             </div>
           )
         })}
@@ -564,9 +712,11 @@ const WorktreeList = React.memo(function WorktreeList() {
   const allWorktrees = useAllWorktrees()
   const repoMap = useRepoMap()
   const worktreeMap = useWorktreeMap()
+  const worktreeLineageById = useAppStore((s) => s.worktreeLineageById)
   const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
   const activeWorktreeId = useAppStore((s) => s.activeWorktreeId)
   const groupBy = useAppStore((s) => s.groupBy)
+  const showWorkspaceLineage = useAppStore((s) => s.showWorkspaceLineage)
   const sortBy = useAppStore((s) => s.sortBy)
   const showActiveOnly = useAppStore((s) => s.showActiveOnly)
   const hideDefaultBranchWorkspace = useAppStore((s) => s.hideDefaultBranchWorkspace)
@@ -872,8 +1022,29 @@ const WorktreeList = React.memo(function WorktreeList() {
 
   // Build flat row list for rendering
   const rows: Row[] = useMemo(
-    () => buildRows(groupBy, worktrees, repoMap, prCache, collapsedGroups, repoOrder),
-    [groupBy, worktrees, repoMap, prCache, collapsedGroups, repoOrder]
+    () =>
+      buildRows(
+        groupBy,
+        worktrees,
+        repoMap,
+        prCache,
+        collapsedGroups,
+        repoOrder,
+        worktreeLineageById,
+        worktreeMap,
+        showWorkspaceLineage
+      ),
+    [
+      groupBy,
+      worktrees,
+      repoMap,
+      prCache,
+      collapsedGroups,
+      repoOrder,
+      worktreeLineageById,
+      worktreeMap,
+      showWorkspaceLineage
+    ]
   )
   // Why: rows.length alone can stay the same when items migrate between
   // groups (e.g., PR cache loads on restart and a collapsed group absorbs
@@ -1054,6 +1225,7 @@ const WorktreeList = React.memo(function WorktreeList() {
       rows={rows}
       activeWorktreeId={selectedSidebarWorktreeId}
       groupBy={groupBy}
+      showWorkspaceLineage={showWorkspaceLineage}
       toggleGroup={toggleGroup}
       collapsedGroups={collapsedGroups}
       handleCreateForRepo={handleCreateForRepo}
@@ -1066,6 +1238,8 @@ const WorktreeList = React.memo(function WorktreeList() {
       onSelectionGesture={updateSelectionForGesture}
       onContextMenuSelect={selectForContextMenu}
       repoMap={repoMap}
+      worktreeMap={worktreeMap}
+      worktreeLineageById={worktreeLineageById}
       repoOrder={repoOrder}
       allRepoIds={allRepoIds}
       reorderRepos={(orderedIds) => {
