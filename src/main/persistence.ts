@@ -1806,6 +1806,7 @@ export class Store {
       sessionKind: 'terminal',
       chatSessionId: null,
       terminalSessionId: null,
+      usage: null,
       error: null,
       startedAt: null,
       dispatchedAt: null,
@@ -1828,6 +1829,7 @@ export class Store {
       status: result.status,
       workspaceId: result.workspaceId ?? current.workspaceId,
       terminalSessionId: result.terminalSessionId ?? current.terminalSessionId,
+      usage: Object.hasOwn(result, 'usage') ? (result.usage ?? null) : (current.usage ?? null),
       error: result.error ?? null,
       startedAt: current.startedAt ?? now,
       dispatchedAt: result.status === 'dispatched' ? now : current.dispatchedAt
