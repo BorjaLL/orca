@@ -362,6 +362,17 @@ function Settings(): React.JSX.Element {
     )
     pendingNavSectionRef.current = paneSectionId
     pendingScrollTargetRef.current = settingsNavigationTarget.sectionId ?? paneSectionId
+    // Why: pendingNavSectionRef is a ref, so the neededSectionIds useMemo
+    // can't observe it. Mount the deep-link target eagerly so its body is
+    // present on the same paint as the scroll/flash.
+    setMountedSectionIds((previous) => {
+      if (previous.has(paneSectionId)) {
+        return previous
+      }
+      const next = new Set(previous)
+      next.add(paneSectionId)
+      return next
+    })
     clearSettingsTarget()
   }, [clearSettingsTarget, settings, settingsNavigationTarget])
 
@@ -898,6 +909,17 @@ function Settings(): React.JSX.Element {
     }
     pendingNavSectionRef.current = 'computer-use'
     pendingScrollTargetRef.current = 'computer-use'
+    // Why: pendingNavSectionRef is a ref, so the neededSectionIds useMemo
+    // can't observe it. Mount the target eagerly so its body is present on
+    // the same paint as the scroll/flash.
+    setMountedSectionIds((previous) => {
+      if (previous.has('computer-use')) {
+        return previous
+      }
+      const next = new Set(previous)
+      next.add('computer-use')
+      return next
+    })
     if (settingsSearchQuery !== '') {
       setSettingsSearchQuery('')
       return
