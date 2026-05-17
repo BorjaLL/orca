@@ -90,22 +90,24 @@ export class SshGitProvider implements IGitProvider {
   async executeCommitMessagePlan(
     plan: CommitMessagePlan,
     cwd: string,
-    timeoutMs: number
+    timeoutMs: number,
+    operation?: string
   ): Promise<RemoteCommitMessageExecResult> {
     return (await this.mux.request('agent.execNonInteractive', {
       binary: plan.binary,
       args: plan.args,
       cwd,
       stdin: plan.stdinPayload,
-      timeoutMs
+      timeoutMs,
+      operation
     })) as RemoteCommitMessageExecResult
   }
 
-  async cancelGenerateCommitMessage(worktreePath: string): Promise<void> {
+  async cancelGenerateCommitMessage(worktreePath: string, operation?: string): Promise<void> {
     // Why: best-effort — the relay returns `{canceled: false}` when there is
     // nothing in flight. Callers should not block UI updates on this.
     try {
-      await this.mux.request('agent.cancelExec', { cwd: worktreePath })
+      await this.mux.request('agent.cancelExec', { cwd: worktreePath, operation })
     } catch {
       // Swallow: cancellation is a fire-and-forget user intent. The pending
       // generateCommitMessage promise will still resolve with the kill result.

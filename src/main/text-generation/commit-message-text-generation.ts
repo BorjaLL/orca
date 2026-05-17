@@ -460,8 +460,8 @@ export async function generateCommitMessageFromContext(
 
   const internalResult =
     target.kind === 'remote'
-      ? await runRemotePlan(planned.plan, target, 'details')
-      : await runLocalPlan(planned.plan, target.cwd, target.env, 'details')
+      ? await runRemotePlan(planned.plan, target)
+      : await runLocalPlan(planned.plan, target.cwd, target.env)
   return formatCommitMessageGenerationResult(internalResult)
 }
 

@@ -736,7 +736,7 @@ export function registerFilesystemHandlers(
           kind: 'remote',
           cwd: args.worktreePath,
           execute: (plan, cwd, timeoutMs) =>
-            provider.executeCommitMessagePlan(plan, cwd, timeoutMs),
+            provider.executeCommitMessagePlan(plan, cwd, timeoutMs, 'pull-request-fields'),
           missingBinaryLocation: 'remote PATH'
         })
       }
@@ -777,7 +777,7 @@ export function registerFilesystemHandlers(
         if (!provider) {
           return
         }
-        await provider.cancelGenerateCommitMessage(args.worktreePath)
+        await provider.cancelGenerateCommitMessage(args.worktreePath, 'pull-request-fields')
         return
       }
       const worktreePath = await resolveRegisteredWorktreePath(args.worktreePath, store)
