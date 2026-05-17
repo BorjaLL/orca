@@ -94,10 +94,12 @@ type ExecParams = {
   stdin: unknown
   timeoutMs: unknown
   env: unknown
+  operation: unknown
 }
 
 type CancelParams = {
   cwd: unknown
+  operation: unknown
 }
 
 type ExecResult = {
@@ -111,6 +113,11 @@ type ExecResult = {
   spawnError?: string
 }
 
+function makeLaneKey(cwd: string, operation: unknown): string {
+  const lane = typeof operation === 'string' && operation.trim() ? operation.trim() : 'default'
+  return `${cwd}\0${lane}`
+}
+
 /**
  * Non-interactive subprocess exec on the remote host. Used by the AI commit
  * message generator to spawn agent CLIs (claude, codex, …) with the staged
@@ -119,10 +126,10 @@ type ExecResult = {
  * and a clean exit code instead of an interactive session.
  */
 export class AgentExecHandler {
-  // Why: a single in-flight exec per cwd is enough — the renderer prevents
-  // double-clicks. Keying by cwd lets `agent.cancelExec({cwd})` find the
-  // child without the client having to track relay-internal request ids.
-  private inFlightByCwd = new Map<string, { child: ChildProcess; markCanceled: () => void }>()
+  // Why: commit-message and PR-field generation may run for the same remote
+  // worktree. Include an operation lane so stopping one agent run cannot
+  // kill the other.
+  private inFlightByLane = new Map<string, { child: ChildProcess; markCanceled: () => void }>()
 
   constructor(dispatcher: RelayDispatcher) {
     dispatcher.onRequest('agent.execNonInteractive', (p) => this.exec(p as ExecParams))
@@ -131,7 +138,7 @@ export class AgentExecHandler {
 
   private async cancel(params: CancelParams): Promise<{ canceled: boolean }> {
     const cwd = typeof params.cwd === 'string' ? params.cwd : ''
-    const entry = this.inFlightByCwd.get(cwd)
+    const entry = this.inFlightByLane.get(makeLaneKey(cwd, params.operation))
     if (!entry) {
       return { canceled: false }
     }
@@ -147,6 +154,16 @@ export class AgentExecHandler {
     }
     const args = Array.isArray(params.args) ? params.args.map((a) => String(a)) : []
     const cwd = typeof params.cwd === 'string' && params.cwd.length > 0 ? params.cwd : undefined
+    const laneKey = typeof cwd === 'string' ? makeLaneKey(cwd, params.operation) : ''
+    if (laneKey && this.inFlightByLane.has(laneKey)) {
+      return {
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        timedOut: false,
+        spawnError: 'Agent exec already running for this worktree and operation.'
+      }
+    }
     const stdinPayload = typeof params.stdin === 'string' ? params.stdin : null
     const requestedTimeout =
       typeof params.timeoutMs === 'number' ? params.timeoutMs : DEFAULT_TIMEOUT_MS
@@ -185,19 +202,21 @@ export class AgentExecHandler {
       let timedOut = false
       let canceled = false
       let settled = false
-      const laneKey = typeof cwd === 'string' ? cwd : ''
       const finish = (result: ExecResult): void => {
         if (settled) {
           return
         }
         settled = true
         if (laneKey) {
-          this.inFlightByCwd.delete(laneKey)
+          const current = this.inFlightByLane.get(laneKey)
+          if (current?.child === child) {
+            this.inFlightByLane.delete(laneKey)
+          }
         }
         resolve(result)
       }
       if (laneKey) {
-        this.inFlightByCwd.set(laneKey, {
+        this.inFlightByLane.set(laneKey, {
           child,
           markCanceled: () => {
             canceled = true

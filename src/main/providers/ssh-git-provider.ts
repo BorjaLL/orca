@@ -20,6 +20,8 @@ import type { CommitMessageDraftContext } from '../../shared/commit-message-gene
 import type { CommitMessagePlan } from '../../shared/commit-message-plan'
 import type { RemoteCommitMessageExecResult } from '../text-generation/commit-message-text-generation'
 
+export type AgentExecOperation = 'commit-message' | 'pull-request-fields'
+
 export class SshGitProvider implements IGitProvider {
   private connectionId: string
   private mux: SshChannelMultiplexer
@@ -90,22 +92,27 @@ export class SshGitProvider implements IGitProvider {
   async executeCommitMessagePlan(
     plan: CommitMessagePlan,
     cwd: string,
-    timeoutMs: number
+    timeoutMs: number,
+    operation: AgentExecOperation = 'commit-message'
   ): Promise<RemoteCommitMessageExecResult> {
     return (await this.mux.request('agent.execNonInteractive', {
       binary: plan.binary,
       args: plan.args,
       cwd,
       stdin: plan.stdinPayload,
-      timeoutMs
+      timeoutMs,
+      operation
     })) as RemoteCommitMessageExecResult
   }
 
-  async cancelGenerateCommitMessage(worktreePath: string): Promise<void> {
+  async cancelGenerateCommitMessage(
+    worktreePath: string,
+    operation: AgentExecOperation = 'commit-message'
+  ): Promise<void> {
     // Why: best-effort — the relay returns `{canceled: false}` when there is
     // nothing in flight. Callers should not block UI updates on this.
     try {
-      await this.mux.request('agent.cancelExec', { cwd: worktreePath })
+      await this.mux.request('agent.cancelExec', { cwd: worktreePath, operation })
     } catch {
       // Swallow: cancellation is a fire-and-forget user intent. The pending
       // generateCommitMessage promise will still resolve with the kill result.

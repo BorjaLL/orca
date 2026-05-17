@@ -28,7 +28,10 @@ const {
   listWorktreesMock,
   resolveCommitMessageSettingsMock,
   generateCommitMessageFromContextMock,
+  generatePullRequestFieldsFromContextMock,
   cancelGenerateCommitMessageLocalMock,
+  cancelGeneratePullRequestFieldsLocalMock,
+  getPullRequestDraftContextMock,
   getSshFilesystemProviderMock,
   getSshGitProviderMock
 } = vi.hoisted(() => ({
@@ -56,7 +59,10 @@ const {
   listWorktreesMock: vi.fn(),
   resolveCommitMessageSettingsMock: vi.fn(),
   generateCommitMessageFromContextMock: vi.fn(),
+  generatePullRequestFieldsFromContextMock: vi.fn(),
   cancelGenerateCommitMessageLocalMock: vi.fn(),
+  cancelGeneratePullRequestFieldsLocalMock: vi.fn(),
+  getPullRequestDraftContextMock: vi.fn(),
   getSshFilesystemProviderMock: vi.fn(),
   getSshGitProviderMock: vi.fn()
 }))
@@ -110,7 +116,13 @@ vi.mock('../providers/ssh-git-dispatch', () => ({
 vi.mock('../text-generation/commit-message-text-generation', () => ({
   resolveCommitMessageSettings: resolveCommitMessageSettingsMock,
   generateCommitMessageFromContext: generateCommitMessageFromContextMock,
-  cancelGenerateCommitMessageLocal: cancelGenerateCommitMessageLocalMock
+  generatePullRequestFieldsFromContext: generatePullRequestFieldsFromContextMock,
+  cancelGenerateCommitMessageLocal: cancelGenerateCommitMessageLocalMock,
+  cancelGeneratePullRequestFieldsLocal: cancelGeneratePullRequestFieldsLocalMock
+}))
+
+vi.mock('../text-generation/pull-request-context', () => ({
+  getPullRequestDraftContext: getPullRequestDraftContextMock
 }))
 
 import { registerFilesystemHandlers } from './filesystem'
@@ -186,7 +198,10 @@ describe('registerFilesystemHandlers', () => {
       listWorktreesMock,
       resolveCommitMessageSettingsMock,
       generateCommitMessageFromContextMock,
+      generatePullRequestFieldsFromContextMock,
       cancelGenerateCommitMessageLocalMock,
+      cancelGeneratePullRequestFieldsLocalMock,
+      getPullRequestDraftContextMock,
       getSshFilesystemProviderMock,
       getSshGitProviderMock
     ]) {
@@ -1049,6 +1064,83 @@ describe('registerFilesystemHandlers', () => {
     ).resolves.toEqual({ success: false, error: 'Failed to read staged changes.' })
 
     expect(generateCommitMessageFromContextMock).not.toHaveBeenCalled()
+  })
+
+  it('generates SSH pull request fields in the pull-request-fields lane', async () => {
+    const params = { agentId: 'custom', model: '', customAgentCommand: 'agent' }
+    const context = {
+      branch: 'feature/pr-fields',
+      base: 'main',
+      currentTitle: '',
+      currentBody: '',
+      currentDraft: false,
+      commitSummary: '- feat: add PR fields',
+      changeSummary: 'M\tREADME.md',
+      patch: '+hello'
+    }
+    const executeCommitMessagePlan = vi.fn().mockResolvedValue({
+      stdout: '{"base":"main","title":"Update README","body":"","draft":false}',
+      stderr: '',
+      exitCode: 0,
+      timedOut: false
+    })
+    resolveCommitMessageSettingsMock.mockReturnValue({ ok: true, params })
+    getPullRequestDraftContextMock.mockResolvedValue(context)
+    getSshGitProviderMock.mockReturnValue({
+      exec: vi.fn(),
+      executeCommitMessagePlan
+    })
+    generatePullRequestFieldsFromContextMock.mockResolvedValue({
+      success: true,
+      fields: { base: 'main', title: 'Update README', body: '', draft: false }
+    })
+
+    registerFilesystemHandlers(store as never)
+
+    await expect(
+      handlers.get('git:generatePullRequestFields')!(null, {
+        worktreePath: '/remote/repo',
+        connectionId: 'conn-1',
+        base: 'main',
+        title: '',
+        body: '',
+        draft: false
+      })
+    ).resolves.toMatchObject({ success: true })
+
+    const target = generatePullRequestFieldsFromContextMock.mock.calls[0]?.[2] as {
+      execute: (
+        plan: { binary: string; args: string[]; stdinPayload: string | null; label: string },
+        cwd: string,
+        timeoutMs: number
+      ) => Promise<unknown>
+    }
+    await target.execute(
+      { binary: 'agent', args: [], stdinPayload: null, label: 'agent' },
+      '/remote/repo',
+      1
+    )
+    expect(executeCommitMessagePlan).toHaveBeenCalledWith(
+      { binary: 'agent', args: [], stdinPayload: null, label: 'agent' },
+      '/remote/repo',
+      1,
+      'pull-request-fields'
+    )
+  })
+
+  it('cancels SSH pull request field generation in the pull-request-fields lane', async () => {
+    const cancelGenerateCommitMessage = vi.fn().mockResolvedValue(undefined)
+    getSshGitProviderMock.mockReturnValue({ cancelGenerateCommitMessage })
+
+    registerFilesystemHandlers(store as never)
+
+    await handlers.get('git:cancelGeneratePullRequestFields')!(null, {
+      worktreePath: '/remote/repo',
+      connectionId: 'conn-1'
+    })
+
+    expect(cancelGenerateCommitMessage).toHaveBeenCalledWith('/remote/repo', 'pull-request-fields')
+    expect(cancelGeneratePullRequestFieldsLocalMock).not.toHaveBeenCalled()
   })
 
   it('routes ssh git:commit through the SSH provider instead of local commitChanges', async () => {

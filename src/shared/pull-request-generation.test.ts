@@ -53,4 +53,27 @@ describe('parseGeneratedPullRequestFields', () => {
       draft: false
     })
   })
+
+  it('parses JSON with agent preamble noise', () => {
+    const fields = parseGeneratedPullRequestFields(
+      'Generating...\n{"base":"origin/main","title":"Add PR generation","body":"Summary\\n","draft":false}',
+      context
+    )
+
+    expect(fields).toEqual({
+      base: 'origin/main',
+      title: 'Add PR generation',
+      body: 'Summary',
+      draft: false
+    })
+  })
+
+  it('uses a generic title when neither generated nor current title exists', () => {
+    const fields = parseGeneratedPullRequestFields('{"title":""}', {
+      ...context,
+      currentTitle: ''
+    })
+
+    expect(fields.title).toBe('Update project files')
+  })
 })

@@ -4,13 +4,18 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GlobalSettings } from '../../shared/types'
 import type * as GitStatusModule from '../git/status'
+import type * as SshGitDispatchModule from '../providers/ssh-git-dispatch'
 import type * as CommitMessageTextGenerationModule from '../text-generation/commit-message-text-generation'
+import type * as PullRequestContextModule from '../text-generation/pull-request-context'
 import { RuntimeGitCommands, type ResolvedRuntimeGitWorktree } from './orca-runtime-git'
 
 const mocks = vi.hoisted(() => ({
   getStagedCommitContext: vi.fn(),
   generateCommitMessageFromContext: vi.fn(),
-  resolveCommitMessageSettings: vi.fn()
+  generatePullRequestFieldsFromContext: vi.fn(),
+  resolveCommitMessageSettings: vi.fn(),
+  getPullRequestDraftContext: vi.fn(),
+  getSshGitProvider: vi.fn()
 }))
 
 vi.mock('../git/status', async () => ({
@@ -23,7 +28,20 @@ vi.mock('../text-generation/commit-message-text-generation', async () => ({
     '../text-generation/commit-message-text-generation'
   )),
   generateCommitMessageFromContext: mocks.generateCommitMessageFromContext,
+  generatePullRequestFieldsFromContext: mocks.generatePullRequestFieldsFromContext,
   resolveCommitMessageSettings: mocks.resolveCommitMessageSettings
+}))
+
+vi.mock('../text-generation/pull-request-context', async () => ({
+  ...(await vi.importActual<typeof PullRequestContextModule>(
+    '../text-generation/pull-request-context'
+  )),
+  getPullRequestDraftContext: mocks.getPullRequestDraftContext
+}))
+
+vi.mock('../providers/ssh-git-dispatch', async () => ({
+  ...(await vi.importActual<typeof SshGitDispatchModule>('../providers/ssh-git-dispatch')),
+  getSshGitProvider: mocks.getSshGitProvider
 }))
 
 const tempDirs: string[] = []
@@ -54,7 +72,10 @@ describe('RuntimeGitCommands', () => {
   beforeEach(() => {
     mocks.getStagedCommitContext.mockReset()
     mocks.generateCommitMessageFromContext.mockReset()
+    mocks.generatePullRequestFieldsFromContext.mockReset()
     mocks.resolveCommitMessageSettings.mockReset()
+    mocks.getPullRequestDraftContext.mockReset()
+    mocks.getSshGitProvider.mockReset()
   })
 
   afterEach(() => {
@@ -117,6 +138,94 @@ describe('RuntimeGitCommands', () => {
         cwd: worktreePath,
         env: expect.objectContaining({ CODEX_HOME: '/managed/codex-home' })
       })
+    )
+  })
+
+  it('uses the pull-request-fields lane for remote PR generation', async () => {
+    const worktreePath = '/remote/repo'
+    const params = { agentId: 'custom', model: '', customAgentCommand: 'agent' }
+    const context = {
+      branch: 'feature/pr-fields',
+      base: 'main',
+      currentTitle: '',
+      currentBody: '',
+      currentDraft: false,
+      commitSummary: '- feat: add PR fields',
+      changeSummary: 'M\tREADME.md',
+      patch: '+hello'
+    }
+    const provider = {
+      exec: vi.fn(),
+      executeCommitMessagePlan: vi.fn().mockResolvedValue({
+        stdout: '{"base":"main","title":"Update README","body":"","draft":false}',
+        stderr: '',
+        exitCode: 0,
+        timedOut: false
+      })
+    }
+    mocks.resolveCommitMessageSettings.mockReturnValue({ ok: true, params })
+    mocks.getSshGitProvider.mockReturnValue(provider)
+    mocks.getPullRequestDraftContext.mockResolvedValue(context)
+    mocks.generatePullRequestFieldsFromContext.mockResolvedValue({
+      success: true,
+      fields: { base: 'main', title: 'Update README', body: '', draft: false }
+    })
+    const commands = new RuntimeGitCommands({
+      resolveRuntimeGitTarget: async () => ({
+        worktree: makeWorktree(worktreePath),
+        connectionId: 'conn-1'
+      }),
+      getRuntimeSettings: () => ({}) as GlobalSettings
+    })
+
+    await expect(
+      commands.generateRuntimePullRequestFields('id:wt-1', {
+        base: 'main',
+        title: '',
+        body: '',
+        draft: false
+      })
+    ).resolves.toMatchObject({ success: true })
+
+    const target = mocks.generatePullRequestFieldsFromContext.mock.calls[0]?.[2] as {
+      execute: (
+        plan: { binary: string; args: string[]; stdinPayload: string | null; label: string },
+        cwd: string,
+        timeoutMs: number
+      ) => Promise<unknown>
+    }
+    await target.execute(
+      { binary: 'agent', args: [], stdinPayload: null, label: 'agent' },
+      worktreePath,
+      1
+    )
+    expect(provider.executeCommitMessagePlan).toHaveBeenCalledWith(
+      { binary: 'agent', args: [], stdinPayload: null, label: 'agent' },
+      worktreePath,
+      1,
+      'pull-request-fields'
+    )
+  })
+
+  it('uses the pull-request-fields lane for remote PR generation cancellation', async () => {
+    const worktreePath = '/remote/repo'
+    const provider = { cancelGenerateCommitMessage: vi.fn().mockResolvedValue(undefined) }
+    mocks.getSshGitProvider.mockReturnValue(provider)
+    const commands = new RuntimeGitCommands({
+      resolveRuntimeGitTarget: async () => ({
+        worktree: makeWorktree(worktreePath),
+        connectionId: 'conn-1'
+      }),
+      getRuntimeSettings: () => ({}) as GlobalSettings
+    })
+
+    await expect(commands.cancelRuntimeGeneratePullRequestFields('id:wt-1')).resolves.toEqual({
+      ok: true
+    })
+
+    expect(provider.cancelGenerateCommitMessage).toHaveBeenCalledWith(
+      worktreePath,
+      'pull-request-fields'
     )
   })
 })

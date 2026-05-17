@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, ChevronsUpDown, Loader2, Sparkles, Square, RefreshCw } from 'lucide-react'
+import { Check, ChevronsUpDown, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store'
 import type {
@@ -20,7 +19,9 @@ import type {
   HostedReviewCreationEligibility
 } from '../../../../shared/hosted-review'
 import { normalizeHostedReviewHeadRef } from '../../../../shared/hosted-review-refs'
-import { stripBaseRef, useCreatePullRequestDialogFields } from './useCreatePullRequestDialogFields'
+import { stripBaseRef } from './pull-request-field-generation'
+import { useCreatePullRequestDialogFields } from './useCreatePullRequestDialogFields'
+import { CreatePullRequestGenerateButton } from './CreatePullRequestGenerateButton'
 
 type CreatePullRequestDialogProps = {
   open: boolean
@@ -207,40 +208,13 @@ export function CreatePullRequestDialog({
             <DialogTitle className="min-w-0 truncate">Create Pull Request</DialogTitle>
             {aiGenerationEnabled ? (
               <div className="shrink-0">
-                {generating ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={handleCancelGenerate}
-                        title="Stop generating"
-                        aria-label="Stop generating pull request details"
-                      >
-                        <RefreshCw className="size-4 animate-spin" />
-                        Generating…
-                        <Square className="size-3 fill-current" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left" sideOffset={6}>
-                      Generating PR details. Click to stop.
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={generateDisabled}
-                    onClick={() => void handleGenerate()}
-                    title={generateDisabledReason ?? 'Generate pull request details with AI'}
-                    aria-label="Generate pull request details with AI"
-                  >
-                    <Sparkles className="size-4" />
-                    Generate with AI
-                  </Button>
-                )}
+                <CreatePullRequestGenerateButton
+                  generating={generating}
+                  generateDisabled={generateDisabled}
+                  generateDisabledReason={generateDisabledReason}
+                  onGenerate={() => void handleGenerate()}
+                  onCancelGenerate={handleCancelGenerate}
+                />
               </div>
             ) : null}
           </div>

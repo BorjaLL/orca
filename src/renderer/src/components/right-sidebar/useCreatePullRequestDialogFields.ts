@@ -9,12 +9,15 @@ import {
   getRuntimeRepoBaseRefDefault,
   searchRuntimeRepoBaseRefs
 } from '@/runtime/runtime-repo-client'
-import {
-  isCustomAgentId,
-  resolveCommitMessageAgentChoice
-} from '../../../../shared/commit-message-agent-spec'
+import { resolveCommitMessageAgentChoice } from '../../../../shared/commit-message-agent-spec'
 import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-review'
-import { normalizeHostedReviewBaseRef } from '../../../../shared/hosted-review-refs'
+import { resolvePullRequestGenerationControl } from './pull-request-generation-control'
+import {
+  buildPullRequestGenerationInput,
+  resolveGeneratedPullRequestFieldUpdate,
+  stripBaseRef,
+  type GenerationSeed
+} from './pull-request-field-generation'
 
 type UseCreatePullRequestDialogFieldsOptions = {
   open: boolean
@@ -25,18 +28,6 @@ type UseCreatePullRequestDialogFieldsOptions = {
   eligibility: HostedReviewCreationEligibility | null
   settings: AppState['settings']
   submitting: boolean
-}
-
-type GenerationSeed = {
-  requestId: number
-  base: string
-  title: string
-  body: string
-  draft: boolean
-}
-
-export function stripBaseRef(ref: string): string {
-  return normalizeHostedReviewBaseRef(ref)
 }
 
 export function useCreatePullRequestDialogFields({
@@ -163,26 +154,22 @@ export function useCreatePullRequestDialogFields({
     }
   }, [baseQuery, open, repoId, settings])
 
-  let generateDisabledReason: string | undefined
-  if (submitting) {
-    generateDisabledReason = 'Create PR in progress...'
-  } else if (!commitMessageAi?.enabled) {
-    generateDisabledReason = 'Enable AI commit messages in Settings -> Git.'
-  } else if (!effectiveCommitMessageAgentId) {
-    generateDisabledReason = 'Pick an agent in Settings -> Git -> AI Commit Messages.'
-  } else if (isCustomAgentId(effectiveCommitMessageAgentId)) {
-    const command = commitMessageAi.customAgentCommand?.trim() ?? ''
-    if (!command) {
-      generateDisabledReason =
-        'Custom command is empty. Add one in Settings -> Git -> AI Commit Messages.'
-    }
-  } else if (!base.trim()) {
-    generateDisabledReason = 'Choose a base branch before generating.'
-  }
-  const generateDisabled = !generating && Boolean(generateDisabledReason)
+  const generationControl = resolvePullRequestGenerationControl({
+    submitting,
+    aiEnabled: commitMessageAi?.enabled === true,
+    agentId: effectiveCommitMessageAgentId,
+    customAgentCommand: commitMessageAi?.customAgentCommand ?? '',
+    base,
+    generating
+  })
 
   const handleGenerate = useCallback(async (): Promise<void> => {
-    if (!worktreePath || !base.trim() || generateInFlightRef.current || generateDisabled) {
+    if (
+      !worktreePath ||
+      !base.trim() ||
+      generateInFlightRef.current ||
+      generationControl.disabled
+    ) {
       return
     }
     const requestId = generationRequestIdRef.current + 1
@@ -201,12 +188,7 @@ export function useCreatePullRequestDialogFields({
           worktreePath,
           connectionId
         },
-        {
-          base: stripBaseRef(base.trim()),
-          title,
-          body,
-          draft
-        }
+        buildPullRequestGenerationInput({ base, title, body, draft })
       )
       if (generationRequestIdRef.current !== requestId) {
         return
@@ -220,25 +202,22 @@ export function useCreatePullRequestDialogFields({
         return
       }
 
-      const currentSeed = generationSeedRef.current
-      const latestFields = latestFieldsRef.current
-      if (
-        !currentSeed ||
-        currentSeed.requestId !== requestId ||
-        currentSeed.base !== latestFields.base ||
-        currentSeed.title !== latestFields.title ||
-        currentSeed.body !== latestFields.body ||
-        currentSeed.draft !== latestFields.draft
-      ) {
-        setGenerateError('Fields changed while generating. Run generate again for a fresh draft.')
+      const update = resolveGeneratedPullRequestFieldUpdate(
+        generationSeedRef.current,
+        latestFieldsRef.current,
+        requestId,
+        result.fields
+      )
+      if (!update.ok) {
+        setGenerateError(update.error)
         return
       }
-      setBase(stripBaseRef(result.fields.base))
+      setBase(update.fields.base)
       setBaseQuery('')
       setBaseResults([])
-      setTitle(result.fields.title)
-      setBody(result.fields.body)
-      setDraft(result.fields.draft)
+      setTitle(update.fields.title)
+      setBody(update.fields.body)
+      setDraft(update.fields.draft)
       setGenerateError(null)
     } catch (error) {
       if (generationRequestIdRef.current !== requestId) {
@@ -254,7 +233,7 @@ export function useCreatePullRequestDialogFields({
         setGenerating(false)
       }
     }
-  }, [base, body, draft, generateDisabled, title, worktreeId, worktreePath])
+  }, [base, body, draft, generationControl.disabled, title, worktreeId, worktreePath])
 
   const handleCancelGenerate = useCallback((): void => {
     if (!worktreePath || !generateInFlightRef.current) {
@@ -275,7 +254,7 @@ export function useCreatePullRequestDialogFields({
   }, [worktreeId, worktreePath])
 
   return {
-    aiGenerationEnabled: commitMessageAi?.enabled === true,
+    aiGenerationEnabled: generationControl.visible,
     base,
     setBase,
     title,
@@ -291,8 +270,8 @@ export function useCreatePullRequestDialogFields({
     baseSearchError,
     generating,
     generateError,
-    generateDisabled,
-    generateDisabledReason,
+    generateDisabled: generationControl.disabled,
+    generateDisabledReason: generationControl.disabledReason,
     handleGenerate,
     handleCancelGenerate
   }
