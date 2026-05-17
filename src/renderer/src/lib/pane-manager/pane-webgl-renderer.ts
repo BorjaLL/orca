@@ -10,21 +10,9 @@ export function resetTerminalWebglSuggestion(): void {
   suggestedRendererType = undefined
 }
 
-function isLinuxRenderer(): boolean {
-  if (typeof navigator === 'undefined') {
-    return false
-  }
-  return navigator.platform.includes('Linux') || navigator.userAgent.includes('Linux')
-}
-
-export function shouldUseTerminalWebgl(pane: ManagedPaneInternal): boolean {
+function shouldUseWebgl(pane: ManagedPaneInternal): boolean {
   if (pane.terminalGpuAcceleration === 'on') {
     return true
-  }
-  if (isLinuxRenderer()) {
-    // Why: multiple Linux/Wayland GPU stacks corrupt xterm's WebGL glyph atlas
-    // without raising context loss; tab switching only masks it by rebuilding WebGL.
-    return false
   }
   return (
     pane.terminalGpuAcceleration === 'auto' &&
@@ -83,7 +71,7 @@ export function attachWebgl(pane: ManagedPaneInternal): void {
   if (
     !ENABLE_WEBGL_RENDERER ||
     !pane.gpuRenderingEnabled ||
-    !shouldUseTerminalWebgl(pane) ||
+    !shouldUseWebgl(pane) ||
     pane.webglAttachmentDeferred ||
     pane.webglDisabledAfterContextLoss
   ) {
