@@ -29,6 +29,11 @@ import { createTerminalCommandLifecycle } from './terminal-command-lifecycle'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import { isWebTerminalSurfaceTabId } from '@/runtime/web-terminal-surface-id'
+import {
+  createAgentInterruptInference,
+  isCtrlCKeyEvent,
+  isPlainEscapeKeyEvent
+} from './agent-interrupt-inference'
 
 const pendingSpawnByPaneKey = new Map<string, Promise<string | null>>()
 const SSH_SESSION_EXPIRED_ERROR = 'SSH_SESSION_EXPIRED'
@@ -201,6 +206,34 @@ export function connectPanePty(
     }
   })
   commandLifecycle.attachXtermConsumer(pane.terminal)
+  const interruptInference = createAgentInterruptInference({
+    paneKey: cacheKey,
+    getStatusEntry: () => useAppStore.getState().agentStatusByPaneKey[cacheKey],
+    inferInterrupt: (request) => {
+      void window.api.agentStatus.inferInterrupt(request).catch((err) => {
+        console.warn('[agent-interrupt] inferInterrupt failed:', err)
+      })
+    }
+  })
+  const onTerminalKeyDown = (event: KeyboardEvent): void => {
+    if (isPlainEscapeKeyEvent(event)) {
+      interruptInference.observeInputIntent('plain-escape')
+      return
+    }
+    if (isCtrlCKeyEvent(event)) {
+      interruptInference.observeInputIntent('ctrl-c')
+    }
+  }
+  // Why: plain Escape must be observed from the focused xterm key event, not
+  // raw `\x1b` bytes, because Alt/meta chords and terminal sequences share the
+  // ESC prefix.
+  const terminalKeyTarget = pane.terminal.element ?? pane.container
+  const terminalKeyTargetSupportsEvents =
+    typeof terminalKeyTarget?.addEventListener === 'function' &&
+    typeof terminalKeyTarget?.removeEventListener === 'function'
+  if (terminalKeyTargetSupportsEvents) {
+    terminalKeyTarget.addEventListener('keydown', onTerminalKeyDown, { capture: true })
+  }
 
   const onExit = (ptyId: string): void => {
     deps.syncPanePtyLayoutBinding(pane.id, null)
@@ -1418,6 +1451,10 @@ export function connectPanePty(
   return {
     dispose() {
       disposed = true
+      if (terminalKeyTargetSupportsEvents) {
+        terminalKeyTarget.removeEventListener('keydown', onTerminalKeyDown, { capture: true })
+      }
+      interruptInference.dispose()
       // Why: actively resolve any in-flight passphrase-gate waits so their
       // zustand subscribers + async IIFEs don't hang for the rest of the
       // session when the pane is torn down before SSH state changes.

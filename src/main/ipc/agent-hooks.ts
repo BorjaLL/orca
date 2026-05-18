@@ -4,6 +4,7 @@ import type {
   AgentStatusIpcPayload,
   MigrationUnsupportedPtyEntry
 } from '../../shared/agent-status-types'
+import type { AgentInterruptInferenceRequest } from '../../shared/agent-interrupt-profiles'
 import { agentHookServer, isValidPaneKey } from '../agent-hooks/server'
 import {
   clearMigrationUnsupportedPtysForPaneKey,
@@ -38,6 +39,7 @@ export function registerAgentHookHandlers(): void {
   ipcMain.removeHandler('agentHooks:copilotStatus')
   ipcMain.removeHandler('agentHooks:hermesStatus')
   ipcMain.removeHandler('agentStatus:getSnapshot')
+  ipcMain.removeHandler('agentStatus:inferInterrupt')
   ipcMain.removeHandler('agentStatus:getMigrationUnsupportedSnapshot')
   // Why: agentStatus:drop is sent fire-and-forget from the renderer via
   // ipcRenderer.send(); we listen with ipcMain.on (not handle) so we don't
@@ -63,6 +65,12 @@ export function registerAgentHookHandlers(): void {
     // Why: the renderer pulls this after workspace hydration, so startup cannot
     // lose replayed statuses while its local store is still empty.
     return agentHookServer.getStatusSnapshot()
+  })
+  ipcMain.handle('agentStatus:inferInterrupt', (_event, request: unknown): boolean => {
+    if (typeof request !== 'object' || request === null) {
+      return false
+    }
+    return agentHookServer.inferInterrupt(request as AgentInterruptInferenceRequest)
   })
   ipcMain.handle(
     'agentStatus:getMigrationUnsupportedSnapshot',

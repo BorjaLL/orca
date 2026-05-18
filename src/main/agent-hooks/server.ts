@@ -36,10 +36,16 @@ import {
 } from '../../shared/agent-hook-listener'
 import type { AgentHookSource } from '../../shared/agent-hook-relay'
 import {
+  AGENT_STATUS_STALE_AFTER_MS,
   type AgentStatusIpcPayload,
+  type AgentType,
   type AgentStatusState,
   normalizeAgentStatusPayload
 } from '../../shared/agent-status-types'
+import {
+  supportsAgentInterruptIntent,
+  type AgentInterruptInferenceRequest
+} from '../../shared/agent-interrupt-profiles'
 import { parseLegacyNumericPaneKey, parsePaneKey } from '../../shared/stable-pane-id'
 import type { LegacyPaneKeyAliasEntry } from '../../shared/types'
 
@@ -277,6 +283,61 @@ export class AgentHookServer {
     return Array.from(this.state.lastStatusByPaneKey.values(), (entry) =>
       toAgentStatusIpcPayload(entry as EnrichedAgentHookEventPayload)
     )
+  }
+
+  inferInterrupt(request: AgentInterruptInferenceRequest): boolean {
+    if (!isValidPaneKey(request.paneKey)) {
+      return false
+    }
+    if (!supportsAgentInterruptIntent(request.baselineAgentType, request.intent)) {
+      return false
+    }
+    const existing = this.state.lastStatusByPaneKey.get(request.paneKey) as
+      | EnrichedAgentHookEventPayload
+      | undefined
+    if (!existing) {
+      return false
+    }
+    const payload = existing.payload
+    const agentType: AgentType | undefined = payload.agentType
+    // Why: Escape inference is a fallback for a missing final hook. A strict
+    // baseline match keeps a delayed timer from overwriting any newer hook,
+    // including same-millisecond prompt or agent identity changes.
+    if (
+      payload.state !== 'working' ||
+      agentType !== request.baselineAgentType ||
+      payload.prompt !== request.baselinePrompt ||
+      existing.receivedAt !== request.baselineUpdatedAt ||
+      existing.stateStartedAt !== request.baselineStateStartedAt ||
+      Date.now() - existing.receivedAt > AGENT_STATUS_STALE_AFTER_MS ||
+      !supportsAgentInterruptIntent(agentType, request.intent)
+    ) {
+      return false
+    }
+
+    const inferred = this.applyNormalizedStatus({
+      paneKey: existing.paneKey,
+      tabId: existing.tabId,
+      worktreeId: existing.worktreeId,
+      connectionId: existing.connectionId,
+      payload: {
+        state: 'done',
+        prompt: payload.prompt,
+        agentType,
+        interrupted: true
+      }
+    })
+    const trackedAgentType = request.baselineAgentType as 'claude' | 'codex' | 'opencode'
+    track('agent_status_inferred_interrupt', {
+      agent_type: trackedAgentType,
+      intent: request.intent === 'double-ctrl-c' ? 'double-ctrl-c' : 'plain-escape'
+    })
+    console.debug('[agent-hooks] inferred interrupted agent status', {
+      paneKey: inferred.paneKey,
+      agentType,
+      intent: request.intent
+    })
+    return true
   }
 
   getStatusChangeSnapshot(): AgentHookStatusChangeEntry[] {

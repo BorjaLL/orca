@@ -69,6 +69,185 @@ afterEach(() => {
 })
 
 describe('AgentHookServer listener replay', () => {
+  it('applies inferred interrupts through the cached status lifecycle', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      const listener = vi.fn()
+      server.setListener(listener)
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: { state: 'working', prompt: 'long task', agentType: 'codex' }
+        },
+        'conn-1'
+      )
+      const baseline = server.getStatusSnapshot()[0]
+
+      vi.setSystemTime(1_500)
+      const applied = server.inferInterrupt({
+        paneKey: PANE,
+        baselineUpdatedAt: baseline.receivedAt,
+        baselineStateStartedAt: baseline.stateStartedAt,
+        baselinePrompt: 'long task',
+        baselineAgentType: 'codex',
+        intent: 'plain-escape'
+      })
+
+      expect(applied).toBe(true)
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          paneKey: PANE,
+          state: 'done',
+          prompt: 'long task',
+          agentType: 'codex',
+          interrupted: true,
+          receivedAt: 1_500,
+          stateStartedAt: 1_500
+        })
+      ])
+      expect(listener).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          paneKey: PANE,
+          payload: expect.objectContaining({ state: 'done', interrupted: true })
+        })
+      )
+      expect(trackMock).toHaveBeenCalledWith('agent_status_inferred_interrupt', {
+        agent_type: 'codex',
+        intent: 'plain-escape'
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects inferred interrupts when a same-millisecond prompt update changed the row', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: { state: 'working', prompt: 'first task', agentType: 'codex' }
+        },
+        'conn-1'
+      )
+      const baseline = server.getStatusSnapshot()[0]
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: { state: 'working', prompt: 'second task', agentType: 'codex' }
+        },
+        'conn-1'
+      )
+
+      const applied = server.inferInterrupt({
+        paneKey: PANE,
+        baselineUpdatedAt: baseline.receivedAt,
+        baselineStateStartedAt: baseline.stateStartedAt,
+        baselinePrompt: 'first task',
+        baselineAgentType: 'codex',
+        intent: 'plain-escape'
+      })
+
+      expect(applied).toBe(false)
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          state: 'working',
+          prompt: 'second task',
+          agentType: 'codex'
+        })
+      ])
+      expect(trackMock).not.toHaveBeenCalledWith(
+        'agent_status_inferred_interrupt',
+        expect.anything()
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects inferred interrupts for stale, non-working, and unprofiled rows', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: { state: 'waiting', prompt: 'permission', agentType: 'codex' }
+        },
+        'conn-1'
+      )
+      const waiting = server.getStatusSnapshot()[0]
+      expect(
+        server.inferInterrupt({
+          paneKey: PANE,
+          baselineUpdatedAt: waiting.receivedAt,
+          baselineStateStartedAt: waiting.stateStartedAt,
+          baselinePrompt: 'permission',
+          baselineAgentType: 'codex',
+          intent: 'plain-escape'
+        })
+      ).toBe(false)
+
+      server.ingestRemote(
+        {
+          paneKey: GOOD_PANE,
+          tabId: 'tab-good',
+          worktreeId: 'wt-1',
+          payload: { state: 'working', prompt: 'gemini task', agentType: 'gemini' }
+        },
+        'conn-1'
+      )
+      const unsupported = server.getStatusSnapshot().find((entry) => entry.paneKey === GOOD_PANE)!
+      expect(
+        server.inferInterrupt({
+          paneKey: GOOD_PANE,
+          baselineUpdatedAt: unsupported.receivedAt,
+          baselineStateStartedAt: unsupported.stateStartedAt,
+          baselinePrompt: 'gemini task',
+          baselineAgentType: 'gemini',
+          intent: 'plain-escape'
+        })
+      ).toBe(false)
+
+      server.ingestRemote(
+        {
+          paneKey: FRESH_PANE,
+          tabId: 'tab-fresh',
+          worktreeId: 'wt-1',
+          payload: { state: 'working', prompt: 'old task', agentType: 'codex' }
+        },
+        'conn-1'
+      )
+      const stale = server.getStatusSnapshot().find((entry) => entry.paneKey === FRESH_PANE)!
+      vi.setSystemTime(stale.receivedAt + 30 * 60 * 1000 + 1)
+      expect(
+        server.inferInterrupt({
+          paneKey: FRESH_PANE,
+          baselineUpdatedAt: stale.receivedAt,
+          baselineStateStartedAt: stale.stateStartedAt,
+          baselinePrompt: 'old task',
+          baselineAgentType: 'codex',
+          intent: 'plain-escape'
+        })
+      ).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('allows multiple status-change subscribers to observe the same update', () => {
     const server = new AgentHookServer()
     const first = vi.fn()
