@@ -94,9 +94,8 @@ export const FEATURE_WALL_TILES: readonly FeatureWallTile[] = [
   {
     id: 'tile-04',
     kind: 'media',
-    title: 'Works with every CLI agent',
-    caption:
-      'Claude Code, Codex, Cursor CLI, Gemini, Copilot, OpenCode, Pi - preconfigured. Any other CLI agent drops right in.',
+    title: 'Supported CLI agents',
+    caption: 'Claude Code, Codex, Cursor CLI, Gemini, Copilot, OpenCode, and Pi are preconfigured.',
     gifPath: 'tile-04.gif',
     posterPath: 'tile-04.poster.jpg',
     recordedAtPath: 'tile-04.recorded-at.json',

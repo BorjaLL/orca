@@ -59,11 +59,11 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
   {
     id: 'coordinate-agents',
     title: 'Coordinate agents',
-    meta: '7 CLIs · Usage · Hotkeys',
+    meta: 'Agent catalog · Usage · Hotkeys',
     lede: 'Run several agents at once. Fan one prompt across Claude, Codex, and Cursor — compare results, merge the winner.',
     bullets: [
       'Preconfigured for Claude Code, Codex, Cursor CLI, Gemini, Copilot, OpenCode, and Pi.',
-      'Drop in any other CLI agent — no shim needed.',
+      'Configure the supported agent catalog from one settings surface.',
       'See live usage and rate-limit resets in the titlebar.'
     ],
     primaryTileId: 'tile-04',

@@ -269,18 +269,18 @@ export default function FeatureWallModal(): JSX.Element | null {
       >
         <DialogHeader className="gap-1 border-b border-border px-6 py-4">
           <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-            Feature tour · Help menu
+            Feature tour
           </div>
           <DialogTitle className="text-base">Get to know Orca</DialogTitle>
           <DialogDescription>
-            A short, workflow-by-workflow tour. Pick a path on the left — each one ends with
-            something you can try in Orca right now.
+            A short, workflow-by-workflow tour. Pick a path — each one ends with something you can
+            try in Orca right now.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-h-0 grid-cols-[260px_minmax(0,1fr)]">
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1 lg:grid-cols-[260px_minmax(0,1fr)]">
           <nav
-            className="scrollbar-sleek overflow-y-auto border-r border-border bg-sidebar p-2"
+            className="scrollbar-sleek max-h-44 overflow-y-auto border-b border-border bg-card p-2 md:max-h-none md:border-b-0 md:border-r"
             aria-label="Workflows"
           >
             <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
@@ -305,7 +305,7 @@ export default function FeatureWallModal(): JSX.Element | null {
                       onKeyDown={(event) => handleRailKeyDown(event, index)}
                       className={cn(
                         'flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors',
-                        'hover:bg-sidebar-accent',
+                        'hover:bg-accent',
                         'focus-visible:ring-[3px] focus-visible:ring-ring/50',
                         isSelected && 'bg-accent text-accent-foreground'
                       )}
@@ -336,10 +336,7 @@ export default function FeatureWallModal(): JSX.Element | null {
               <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
                 Workflow {selectedIndex + 1} of {FEATURE_WALL_WORKFLOWS.length} · {selected.title}
               </div>
-              <h3
-                id={previewTitleId}
-                className="text-[22px] font-semibold leading-tight tracking-[-0.01em]"
-              >
+              <h3 id={previewTitleId} className="text-xl font-semibold leading-tight">
                 {selected.title}
               </h3>
               <p className="mt-1.5 max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
@@ -347,7 +344,7 @@ export default function FeatureWallModal(): JSX.Element | null {
               </p>
             </div>
 
-            <div className="grid grid-cols-[minmax(0,1fr)_320px] items-start gap-6 px-8 pb-8 pt-2">
+            <div className="grid grid-cols-1 items-start gap-6 px-8 pb-8 pt-2 lg:grid-cols-[minmax(0,1fr)_320px]">
               <PreviewMedia
                 key={selected.id}
                 posterUrl={posterUrl}
@@ -377,16 +374,19 @@ export default function FeatureWallModal(): JSX.Element | null {
           </section>
         </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t border-border bg-card/50 px-6 py-3">
+        <footer className="flex flex-col gap-3 border-t border-border bg-card/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <span className="text-[11px] text-muted-foreground">
             Reopen any time from Help &gt; Feature tour.
           </span>
-          <div className="flex items-center gap-2">
-            <Button variant="link" onClick={handleSecondaryDocs}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button variant="link" className="w-full sm:w-auto" onClick={handleSecondaryDocs}>
               <ExternalLink className="size-3.5" />
               Open docs
             </Button>
-            <Button onClick={() => handlePrimaryCta(selected.primaryCta)}>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={() => handlePrimaryCta(selected.primaryCta)}
+            >
               {selected.primaryCta.label}
               <ChevronRight className="size-3.5" />
             </Button>
