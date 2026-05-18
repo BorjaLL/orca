@@ -1,19 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import type { JSX } from 'react'
 import { PlayCircle, X } from 'lucide-react'
-import {
-  DEFAULT_FEATURE_WALL_WORKFLOW_ID,
-  getFeatureWallMediaTile,
-  getFeatureWallWorkflow
-} from '../../../../shared/feature-wall-workflows'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { toFeatureWallAssetUrl, useFeatureWallAssetBaseUrl } from './feature-wall-assets'
-
-const NUDGE_WORKFLOW = getFeatureWallWorkflow(DEFAULT_FEATURE_WALL_WORKFLOW_ID)
-const NUDGE_TILE = NUDGE_WORKFLOW ? getFeatureWallMediaTile(NUDGE_WORKFLOW.primaryTileId) : null
 
 export function FeatureTourNudge(): JSX.Element | null {
   const visible = useAppStore((s) => s.featureTourNudgeVisible)
@@ -22,18 +13,7 @@ export function FeatureTourNudge(): JSX.Element | null {
   const dismissFeatureTourNudge = useAppStore((s) => s.dismissFeatureTourNudge)
   const openModal = useAppStore((s) => s.openModal)
   const shouldRender = visible && activeModal !== 'feature-wall'
-  const assetBaseUrl = useFeatureWallAssetBaseUrl(shouldRender)
-  const [mediaFailed, setMediaFailed] = useState(false)
-  const [mediaLoaded, setMediaLoaded] = useState(false)
-  const gifUrl = NUDGE_TILE ? toFeatureWallAssetUrl(assetBaseUrl, NUDGE_TILE.gifPath) : null
-  const posterUrl = NUDGE_TILE ? toFeatureWallAssetUrl(assetBaseUrl, NUDGE_TILE.posterPath) : null
-  const mediaUrl = gifUrl ?? posterUrl
   const updateCardVisible = updateStatus.state !== 'idle' && updateStatus.state !== 'not-available'
-
-  useEffect(() => {
-    setMediaFailed(false)
-    setMediaLoaded(false)
-  }, [mediaUrl])
 
   useEffect(() => {
     if (!shouldRender) {
@@ -48,7 +28,7 @@ export function FeatureTourNudge(): JSX.Element | null {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [dismissFeatureTourNudge, shouldRender])
 
-  if (!shouldRender || !NUDGE_WORKFLOW) {
+  if (!shouldRender) {
     return null
   }
 
@@ -76,9 +56,9 @@ export function FeatureTourNudge(): JSX.Element | null {
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 space-y-0.5">
               <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                Take the tour
+                Feature tour
               </div>
-              <h3 className="truncate text-sm font-semibold">{NUDGE_WORKFLOW.title}</h3>
+              <h3 className="truncate text-sm font-semibold">See what Orca can do</h3>
             </div>
             <Button
               variant="ghost"
@@ -94,39 +74,11 @@ export function FeatureTourNudge(): JSX.Element | null {
             </Button>
           </div>
 
-          <button
-            type="button"
-            className="relative block aspect-[16/9] w-full overflow-hidden rounded-md bg-muted text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-            onClick={handleOpenTour}
-            aria-label="Open feature tour"
-          >
-            {mediaUrl && !mediaLoaded && !mediaFailed ? (
-              <div className="absolute inset-0 animate-pulse bg-muted/50" />
-            ) : null}
-            {mediaUrl && !mediaFailed ? (
-              <img
-                src={mediaUrl}
-                alt=""
-                className={cn(
-                  'size-full object-cover',
-                  mediaLoaded ? '' : 'absolute inset-0 opacity-0'
-                )}
-                draggable={false}
-                onLoad={() => setMediaLoaded(true)}
-                onError={() => setMediaFailed(true)}
-              />
-            ) : (
-              <div className="flex size-full items-end p-3 text-sm font-semibold text-foreground">
-                {NUDGE_WORKFLOW.title}
-              </div>
-            )}
-          </button>
-
           <p
             className="line-clamp-2 text-xs leading-snug text-muted-foreground"
             data-feature-tour-nudge-caption
           >
-            {NUDGE_WORKFLOW.lede}
+            A quick walkthrough of the workflows built into Orca.
           </p>
           <p className="text-xs leading-snug text-muted-foreground">
             Reopen any time from Help &gt; Feature tour.

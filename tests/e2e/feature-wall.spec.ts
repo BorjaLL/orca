@@ -142,8 +142,10 @@ test.describe('Feature tour modal', () => {
       name: 'Take the Orca feature tour'
     })
     await expect(nudge).toBeVisible()
-    await expect(nudge.getByText('Start work')).toBeVisible()
-    await expect(nudge.getByText(/Pick an issue, create an isolated worktree/)).toBeVisible()
+    await expect(nudge.getByText('See what Orca can do')).toBeVisible()
+    await expect(
+      nudge.getByText('A quick walkthrough of the workflows built into Orca.')
+    ).toBeVisible()
     await expect(nudge.getByText('Reopen any time from Help > Feature tour.')).toBeVisible()
     await expect
       .poll(
@@ -156,7 +158,7 @@ test.describe('Feature tour modal', () => {
         }
       )
       .toBe(true)
-    await expect(nudge.locator('img')).toHaveAttribute('src', /tile-03/)
+    await expect(nudge.locator('img')).toHaveCount(0)
 
     const takeTourButton = nudge.getByRole('button', { name: /^Take the tour$/ })
     await expect(takeTourButton).toBeVisible()
