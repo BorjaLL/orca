@@ -147,6 +147,7 @@ test.describe('Feature tour modal', () => {
       nudge.getByText('A quick walkthrough of the workflows built into Orca.')
     ).toBeVisible()
     await expect(nudge.getByText('Reopen any time from Help > Feature tour.')).toBeVisible()
+    await expect(nudge.locator('[data-feature-tour-nudge-visual]')).toBeVisible()
     await expect
       .poll(
         () =>
