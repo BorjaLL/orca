@@ -3,9 +3,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import type { CSSProperties } from 'react'
 import type { IDisposable } from '@xterm/xterm'
+import { X } from 'lucide-react'
 import { useAppStore } from '../../store'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   DEFAULT_TERMINAL_DIVIDER_DARK,
+  isTerminalBackgroundLight,
   normalizeColor,
   resolveEffectiveTerminalAppearance
 } from '@/lib/terminal-theme'
@@ -229,6 +233,7 @@ export default function TerminalPane({
   const [paneTitles, setPaneTitles] = useState<Record<number, string>>({})
   const paneTitlesRef = useRef<Record<number, string>>({})
   paneTitlesRef.current = paneTitles
+  const removedTitleLeafIdsRef = useRef<Set<string>>(new Set())
   const [renamingPaneId, setRenamingPaneId] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const renameInputRef = useRef<HTMLInputElement>(null)
@@ -384,12 +389,27 @@ export default function TerminalPane({
     // Preserve pane titles — uses the live React state (via ref) rather than
     // the stale Zustand value because React state reflects in-flight title
     // edits that haven't been persisted yet.
+    const titlesByLeafId: Record<string, string> = {}
+    const removedTitleLeafIds = removedTitleLeafIdsRef.current
+    for (const pane of currentPanes) {
+      const existingTitle = existing?.titlesByLeafId?.[pane.leafId]
+      if (existingTitle && !removedTitleLeafIds.has(pane.leafId)) {
+        titlesByLeafId[pane.leafId] = existingTitle
+      }
+    }
+    // Why: active agents can trigger layout persists while pane-title React
+    // state is catching up. Preserve existing leaf titles unless this pane
+    // explicitly removed them, then overlay the live local pane-title state.
     const titles = paneTitlesRef.current
-    const titleEntries = currentPanes
-      .filter((p) => titles[p.id])
-      .map((p) => [p.leafId, titles[p.id]] as const)
-    if (titleEntries.length > 0) {
-      layout.titlesByLeafId = Object.fromEntries(titleEntries)
+    for (const pane of currentPanes) {
+      const title = titles[pane.id]
+      if (title) {
+        titlesByLeafId[pane.leafId] = title
+        removedTitleLeafIds.delete(pane.leafId)
+      }
+    }
+    if (Object.keys(titlesByLeafId).length > 0) {
+      layout.titlesByLeafId = titlesByLeafId
     }
     setTabLayout(tabId, layout)
   }, [tabId, setTabLayout])
@@ -1012,34 +1032,7 @@ export default function TerminalPane({
     setRenamingPaneId(paneId)
   }, [])
 
-  const handleRenameSubmit = useCallback(() => {
-    if (renamingPaneId === null || renameSubmittedRef.current) {
-      return
-    }
-    renameSubmittedRef.current = true
-    const trimmed = renameValue.trim()
-    if (trimmed.length === 0) {
-      // Empty input — just cancel, don't change anything.
-      setRenamingPaneId(null)
-      return
-    }
-    setPaneTitles((prev) => ({ ...prev, [renamingPaneId]: trimmed }))
-    // Eagerly update the ref so persistLayoutSnapshot (which reads
-    // paneTitlesRef.current) sees the new title immediately, without
-    // waiting for React to re-render and assign it during the next
-    // render pass.
-    paneTitlesRef.current = { ...paneTitlesRef.current, [renamingPaneId]: trimmed }
-    setRenamingPaneId(null)
-    // Persist immediately so the title survives restarts.
-    persistLayoutSnapshot()
-  }, [renamingPaneId, renameValue, persistLayoutSnapshot])
-
-  const handleRenameCancel = useCallback(() => {
-    renameSubmittedRef.current = true
-    setRenamingPaneId(null)
-  }, [])
-
-  const handleRemoveTitle = useCallback(
+  const removePaneTitle = useCallback(
     (paneId: number) => {
       setPaneTitles((prev) => {
         if (!(paneId in prev)) {
@@ -1055,9 +1048,51 @@ export default function TerminalPane({
         delete next[paneId]
         paneTitlesRef.current = next
       }
+      const leafId = managerRef.current?.getPanes().find((pane) => pane.id === paneId)?.leafId
+      if (leafId) {
+        removedTitleLeafIdsRef.current.add(leafId)
+      }
       persistLayoutSnapshot()
     },
     [persistLayoutSnapshot]
+  )
+
+  const handleRenameSubmit = useCallback(() => {
+    if (renamingPaneId === null || renameSubmittedRef.current) {
+      return
+    }
+    renameSubmittedRef.current = true
+    const trimmed = renameValue.trim()
+    if (trimmed.length === 0) {
+      if (paneTitlesRef.current[renamingPaneId]) {
+        removePaneTitle(renamingPaneId)
+      }
+      setRenamingPaneId(null)
+      return
+    }
+    setPaneTitles((prev) => ({ ...prev, [renamingPaneId]: trimmed }))
+    // Eagerly update the ref so persistLayoutSnapshot (which reads
+    // paneTitlesRef.current) sees the new title immediately, without
+    // waiting for React to re-render and assign it during the next
+    // render pass.
+    paneTitlesRef.current = { ...paneTitlesRef.current, [renamingPaneId]: trimmed }
+    const leafId = managerRef.current?.getPanes().find((pane) => pane.id === renamingPaneId)?.leafId
+    if (leafId) {
+      removedTitleLeafIdsRef.current.delete(leafId)
+    }
+    setRenamingPaneId(null)
+    // Persist immediately so the title survives restarts.
+    persistLayoutSnapshot()
+  }, [renamingPaneId, renameValue, removePaneTitle, persistLayoutSnapshot])
+
+  const handleRenameCancel = useCallback(() => {
+    renameSubmittedRef.current = true
+    setRenamingPaneId(null)
+  }, [])
+
+  const handleRemoveTitle = useCallback(
+    (paneId: number) => removePaneTitle(paneId),
+    [removePaneTitle]
   )
 
   // Auto-focus and select-all in the rename input when the dialog opens.
@@ -1160,6 +1195,15 @@ export default function TerminalPane({
   const effectiveAppearance = settings
     ? resolveEffectiveTerminalAppearance(settings, systemPrefersDark)
     : null
+  // Why: app light/dark mode can diverge from the selected terminal theme, so
+  // pane-title contrast follows the effective terminal surface instead.
+  const titleUsesLightSurface = isTerminalBackgroundLight(
+    settings?.terminalColorOverrides?.background ?? effectiveAppearance?.theme?.background,
+    {
+      appSurface: effectiveAppearance?.mode,
+      backgroundOpacity: settings?.terminalBackgroundOpacity
+    }
+  )
 
   const terminalContainerStyle: CSSProperties = {
     // Why: split groups can keep one terminal visible in an unfocused group so
@@ -1182,6 +1226,7 @@ export default function TerminalPane({
         className="absolute inset-0 min-h-0 min-w-0"
         data-native-file-drop-target="terminal"
         data-terminal-tab-id={tabId}
+        data-pane-title-surface={titleUsesLightSurface ? 'light' : 'dark'}
         style={terminalContainerStyle}
         onContextMenuCapture={contextMenu.onContextMenuCapture}
         onMouseDownCapture={handlePrimarySelectionMiddleMouseDown}
@@ -1302,6 +1347,8 @@ export default function TerminalPane({
               <input
                 ref={renameInputRef}
                 className="pane-title-input"
+                aria-label="Pane title"
+                placeholder="Pane title"
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
                 onKeyDown={(e) => {
@@ -1315,19 +1362,34 @@ export default function TerminalPane({
               />
             ) : (
               <>
-                <span className="pane-title-text" onClick={() => handleStartRename(pane.id)}>
-                  {title}
-                </span>
                 <button
-                  className="pane-title-close"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleRemoveTitle(pane.id)
-                  }}
-                  aria-label="Remove title"
+                  type="button"
+                  className="pane-title-text"
+                  onClick={() => handleStartRename(pane.id)}
+                  aria-label={`Edit pane title: ${title}`}
                 >
-                  ×
+                  {title}
                 </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      className="pane-title-close"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveTitle(pane.id)
+                      }}
+                      aria-label={`Remove pane title: ${title}`}
+                    >
+                      <X className="size-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" sideOffset={4}>
+                    Remove title
+                  </TooltipContent>
+                </Tooltip>
               </>
             )}
           </div>,

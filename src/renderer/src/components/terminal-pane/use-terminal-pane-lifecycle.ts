@@ -822,6 +822,10 @@ export function useTerminalPaneLifecycle({
         // Merge (not replace) so we don't discard any concurrent state
         // updates from onPaneClosed that React may have batched.
         setPaneTitles((prev) => ({ ...prev, ...restored }))
+        // Why: the lifecycle immediately persists a fresh layout after restore,
+        // before React state has flushed. Keep the ref in sync now so that
+        // persist preserves restored titles instead of rewriting them away.
+        paneTitlesRef.current = { ...paneTitlesRef.current, ...restored }
       }
     }
 
