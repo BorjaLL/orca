@@ -162,6 +162,7 @@ import type {
 } from '../shared/agent-status-types'
 import type {
   RuntimeBrowserDriverState,
+  RuntimeMobileSessionTabMove,
   RuntimeStatus,
   RuntimeSyncWindowGraph,
   RuntimeTerminalDriverState
@@ -205,7 +206,13 @@ import type {
   ClaudeUsageSummary
 } from '../shared/claude-usage-types'
 import type { RateLimitState } from '../shared/rate-limit-types'
-import type { SpeechModelManifest, SpeechModelState } from '../shared/speech-types'
+import type {
+  SpeechErrorEvent,
+  SpeechLifecycleEvent,
+  SpeechModelManifest,
+  SpeechModelState,
+  SpeechTranscriptEvent
+} from '../shared/speech-types'
 import type {
   WorkspaceSpaceAnalyzeResult,
   WorkspaceSpaceScanProgress
@@ -1608,6 +1615,7 @@ export type PreloadApi = {
         requestId: string
         worktreeId?: string
         afterTabId?: string
+        targetGroupId?: string
         command?: string
         title?: string
         activate?: boolean
@@ -1638,6 +1646,9 @@ export type PreloadApi = {
     ) => () => void
     onCloseSessionTab: (
       callback: (data: { tabId: string; worktreeId: string }) => void
+    ) => () => void
+    onMoveSessionTab: (
+      callback: (data: { worktreeId: string } & RuntimeMobileSessionTabMove) => void
     ) => () => void
     onOpenFileFromMobile: (
       callback: (data: { worktreeId: string; filePath: string; relativePath: string }) => void
@@ -1782,6 +1793,7 @@ export type PreloadApi = {
     connect: (args: { targetId: string }) => Promise<SshConnectionState | null>
     disconnect: (args: { targetId: string }) => Promise<void>
     terminateSessions: (args: { targetId: string }) => Promise<void>
+    resetRelay: (args: { targetId: string }) => Promise<void>
     getState: (args: { targetId: string }) => Promise<SshConnectionState | null>
     needsPassphrasePrompt: (args: { targetId: string }) => Promise<boolean>
     testConnection: (args: {
@@ -1904,17 +1916,21 @@ export type PreloadApi = {
     downloadModel: (modelId: string) => Promise<void>
     cancelDownload: (modelId: string) => Promise<void>
     deleteModel: (modelId: string) => Promise<void>
-    startDictation: (modelId: string, hotwords?: string[]) => Promise<void>
-    feedAudio: (samples: Float32Array, sampleRate: number) => Promise<void>
-    stopDictation: () => Promise<void>
-    onPartialTranscript: (callback: (text: string) => void) => () => void
-    onFinalTranscript: (callback: (text: string) => void) => () => void
+    startDictation: (
+      modelId: string,
+      hotwords: string[] | undefined,
+      sessionId: string
+    ) => Promise<void>
+    feedAudio: (samples: Float32Array, sampleRate: number, sessionId?: string) => Promise<void>
+    stopDictation: (sessionId?: string) => Promise<void>
+    onPartialTranscript: (callback: (data: SpeechTranscriptEvent) => void) => () => void
+    onFinalTranscript: (callback: (data: SpeechTranscriptEvent) => void) => () => void
     onDownloadProgress: (
       callback: (data: { modelId: string; progress: number }) => void
     ) => () => void
-    onReady: (callback: () => void) => () => void
-    onStopped: (callback: () => void) => () => void
-    onError: (callback: (error: string) => void) => () => void
+    onReady: (callback: (data: SpeechLifecycleEvent) => void) => () => void
+    onStopped: (callback: (data: SpeechLifecycleEvent) => void) => () => void
+    onError: (callback: (data: SpeechErrorEvent) => void) => () => void
   }
 }
 

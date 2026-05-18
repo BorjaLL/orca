@@ -393,7 +393,27 @@ const onboardingFailureReasonSchema = z.enum([
   'cancelled',
   'unknown'
 ])
-const onboardingValueKindSchema = z.enum(['agent', 'theme', 'notifications', 'repo'])
+const onboardingValueKindSchema = z.enum([
+  'agent',
+  'theme',
+  'notifications',
+  'integrations',
+  'repo'
+])
+const onboardingTaskSourcesGithubStatusSchema = z.enum([
+  'connected',
+  'not_authenticated',
+  'not_installed',
+  'checking',
+  'unknown'
+])
+const onboardingTaskSourcesLinearStatusSchema = z.enum([
+  'connected',
+  'not_connected',
+  'checking',
+  'unknown'
+])
+const onboardingTaskSourcesExitActionSchema = z.enum(['continue', 'skip_to_project_setup'])
 // `dismissed` from `OnboardingChecklistState` is intentionally excluded —
 // it is a UI panel-visibility flag, not an activation event, so it never
 // fires `activation_checklist_item_completed`. Keep this list in sync with
@@ -502,6 +522,16 @@ const onboardingStep4PathFailedSchema = z
   .object({
     path: onboardingPathSchema,
     reason: onboardingFailureReasonSchema,
+    cohort: cohortSchema
+  })
+  .strict()
+const onboardingTaskSourcesSnapshotSchema = z
+  .object({
+    github_status: onboardingTaskSourcesGithubStatusSchema,
+    linear_status: onboardingTaskSourcesLinearStatusSchema,
+    exit_action: onboardingTaskSourcesExitActionSchema,
+    duration_ms: z.number().int().nonnegative().optional(),
+    advanced_via: advancedViaSchema,
     cohort: cohortSchema
   })
   .strict()
@@ -748,6 +778,7 @@ export const eventSchemas = {
   onboarding_step_skipped: onboardingStepSkippedSchema,
   onboarding_step4_path_clicked: onboardingStep4PathClickedSchema,
   onboarding_step4_path_failed: onboardingStep4PathFailedSchema,
+  onboarding_task_sources_snapshot: onboardingTaskSourcesSnapshotSchema,
   onboarding_completed: onboardingCompletedSchema,
   onboarding_dismissed: onboardingDismissedSchema,
   onboarding_agent_picked: onboardingAgentPickedSchema,
@@ -854,6 +885,7 @@ type _OnboardingCohortRoster =
   | 'onboarding_step_skipped'
   | 'onboarding_step4_path_clicked'
   | 'onboarding_step4_path_failed'
+  | 'onboarding_task_sources_snapshot'
   | 'onboarding_completed'
   | 'onboarding_dismissed'
   | 'onboarding_agent_picked'
