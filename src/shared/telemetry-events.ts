@@ -162,6 +162,18 @@ export type FeatureWallTileIdTelemetry = z.infer<typeof featureWallTileIdSchema>
 export const featureWallOpenSourceSchema = z.enum(['help_menu', 'popup', 'unknown'])
 export type FeatureWallOpenSourceTelemetry = z.infer<typeof featureWallOpenSourceSchema>
 
+export const featureWallWorkflowIdSchema = z.enum([
+  'start-work',
+  'coordinate-agents',
+  'inspect-edit',
+  'review-ship',
+  'work-remotely'
+])
+export type FeatureWallWorkflowIdTelemetry = z.infer<typeof featureWallWorkflowIdSchema>
+
+export const featureWallPrimaryCtaActionSchema = z.enum(['in-app', 'docs'])
+export type FeatureWallPrimaryCtaActionTelemetry = z.infer<typeof featureWallPrimaryCtaActionSchema>
+
 // `env_var` is deliberately absent — env-var and CI paths override consent at
 // runtime only (see consent.ts); they never mutate `optedIn` and therefore
 // never fire a `telemetry_opted_in/out` event. If a future path explicitly
@@ -283,6 +295,33 @@ const featureWallTileFocusedSchema = z
 const featureWallTileClickedSchema = z
   .object({
     tile_id: featureWallTileIdSchema
+  })
+  .strict()
+const featureWallGroupSelectedSchema = z
+  .object({
+    group_id: featureWallWorkflowIdSchema,
+    source: featureWallOpenSourceSchema
+  })
+  .strict()
+const featureWallFeatureSelectedSchema = z
+  .object({
+    group_id: featureWallWorkflowIdSchema,
+    tile_id: featureWallTileIdSchema,
+    source: featureWallOpenSourceSchema
+  })
+  .strict()
+const featureWallPrimaryCtaClickedSchema = z
+  .object({
+    group_id: featureWallWorkflowIdSchema,
+    action: featureWallPrimaryCtaActionSchema,
+    source: featureWallOpenSourceSchema
+  })
+  .strict()
+const featureWallDocsClickedSchema = z
+  .object({
+    group_id: featureWallWorkflowIdSchema,
+    tile_id: featureWallTileIdSchema,
+    source: featureWallOpenSourceSchema
   })
   .strict()
 
@@ -697,6 +736,10 @@ export const eventSchemas = {
   feature_wall_closed: featureWallClosedSchema,
   feature_wall_tile_focused: featureWallTileFocusedSchema,
   feature_wall_tile_clicked: featureWallTileClickedSchema,
+  feature_wall_group_selected: featureWallGroupSelectedSchema,
+  feature_wall_feature_selected: featureWallFeatureSelectedSchema,
+  feature_wall_primary_cta_clicked: featureWallPrimaryCtaClickedSchema,
+  feature_wall_docs_clicked: featureWallDocsClickedSchema,
 
   onboarding_started: onboardingStartedSchema,
   onboarding_step_viewed: onboardingStepViewedSchema,

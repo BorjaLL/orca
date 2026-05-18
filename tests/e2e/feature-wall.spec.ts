@@ -23,12 +23,10 @@ async function openFeatureTourFromMenu(electronApp: ElectronApplication): Promis
   })
 }
 
-async function loadedFeatureWallImageCount(page: Page): Promise<number> {
+async function loadedSelectedPreviewImage(page: Page): Promise<boolean> {
   return page.evaluate(() => {
-    return Array.from(document.querySelectorAll('[data-feature-wall-tile-id] img')).filter(
-      (image): image is HTMLImageElement =>
-        image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0
-    ).length
+    const figure = document.querySelector('section figure img')
+    return figure instanceof HTMLImageElement && figure.complete && figure.naturalWidth > 0
   })
 }
 
@@ -37,38 +35,58 @@ test.describe('Feature tour modal', () => {
     await waitForSessionReady(orcaPage)
   })
 
-  test('opens from the Help menu, renders bundled media, and closes cleanly', async ({
+  test('opens from the Help menu, renders the workflow rail, and routes the primary CTA', async ({
     electronApp,
     orcaPage
   }) => {
     await openFeatureTourFromMenu(electronApp)
 
-    await expect(
-      orcaPage.getByRole('dialog', { name: "Explore some of Orca's features" })
-    ).toBeVisible({
+    await expect(orcaPage.getByRole('dialog', { name: 'Get to know Orca' })).toBeVisible({
       timeout: 10_000
     })
-    await expect(
-      orcaPage.getByText('Tasks, terminal, agents, browser, SSH, review, and more.')
-    ).toBeVisible()
-    await expect(orcaPage.getByText('Reopen this any time from Help > Feature tour.')).toBeVisible()
-    await expect(orcaPage.getByRole('listitem')).toHaveCount(12)
-    await expect(
-      orcaPage.getByRole('listitem', { name: /Remote worktrees over SSH/i })
-    ).toBeVisible()
+    await expect(orcaPage.getByText('Reopen any time from Help > Feature tour.')).toBeVisible()
 
+    // Five workflow rows in the rail.
+    const rail = orcaPage.getByRole('navigation', { name: 'Workflows' })
+    await expect(rail.getByRole('tab')).toHaveCount(5)
+    await expect(rail.getByRole('tab', { name: /Start work/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+
+    // Default-selected workflow's primary tile poster loads.
     await expect
-      .poll(async () => loadedFeatureWallImageCount(orcaPage), {
+      .poll(async () => loadedSelectedPreviewImage(orcaPage), {
         timeout: 10_000,
-        message: 'feature-wall media did not load'
+        message: 'feature-wall preview media did not load for the default workflow'
       })
-      .toBeGreaterThanOrEqual(12)
+      .toBe(true)
 
-    const assetSources = await orcaPage
-      .locator('[data-feature-wall-tile-id] img')
-      .evaluateAll((images) => images.map((image) => (image as HTMLImageElement).src))
-    expect(assetSources.length).toBeGreaterThanOrEqual(12)
-    expect(assetSources.every((src) => src.includes('/onboarding/feature-wall/'))).toBe(true)
+    // ArrowDown moves selection through the rail.
+    await rail.getByRole('tab', { name: /Start work/i }).focus()
+    await orcaPage.keyboard.press('ArrowDown')
+    await expect(rail.getByRole('tab', { name: /Coordinate agents/i })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+
+    // Primary CTA for "Coordinate agents" closes the modal and opens agent settings.
+    await orcaPage.getByRole('button', { name: /Open agent settings/i }).click()
+    await expect(orcaPage.getByRole('dialog', { name: 'Get to know Orca' })).toHaveCount(0)
+    await expect.poll(async () => getStoreState<string>(orcaPage, 'activeModal')).toBe('none')
+    await expect.poll(async () => getStoreState<string>(orcaPage, 'activeView')).toBe('settings')
+    await expect(
+      orcaPage.locator('[data-settings-section="agents"]').getByRole('heading', {
+        name: 'Agents'
+      })
+    ).toBeVisible()
+  })
+
+  test('docs link in the footer opens the workflow docs URL', async ({ electronApp, orcaPage }) => {
+    await openFeatureTourFromMenu(electronApp)
+    await expect(orcaPage.getByRole('dialog', { name: 'Get to know Orca' })).toBeVisible({
+      timeout: 10_000
+    })
 
     await electronApp.evaluate(({ shell }) => {
       const testGlobal = globalThis as typeof globalThis & {
@@ -83,7 +101,7 @@ test.describe('Feature tour modal', () => {
       }) as typeof shell.openExternal
     })
     try {
-      await orcaPage.locator('[data-feature-wall-tile-id="tile-02"]').click()
+      await orcaPage.getByRole('button', { name: /Open docs/i }).click()
       await expect
         .poll(() =>
           electronApp.evaluate(
@@ -95,7 +113,7 @@ test.describe('Feature tour modal', () => {
               ).__featureWallOpenedDocsUrl
           )
         )
-        .toBe('https://www.onorca.dev/docs/terminal')
+        .toBe('https://www.onorca.dev/docs/review/linear')
     } finally {
       await electronApp.evaluate(({ shell }) => {
         const originalOpenExternal = (
@@ -108,22 +126,6 @@ test.describe('Feature tour modal', () => {
         }
       })
     }
-
-    await orcaPage.locator('[data-feature-wall-tile-id="tile-01"]').focus()
-    await orcaPage.keyboard.press('ArrowRight')
-    await expect
-      .poll(() =>
-        orcaPage.evaluate(
-          () => (document.activeElement as HTMLElement | null)?.dataset.featureWallTileId
-        )
-      )
-      .toBe('tile-02')
-
-    await orcaPage.getByRole('button', { name: 'Close' }).click()
-    await expect(
-      orcaPage.getByRole('dialog', { name: "Explore some of Orca's features" })
-    ).toHaveCount(0)
-    await expect.poll(async () => getStoreState<string>(orcaPage, 'activeModal')).toBe('none')
   })
 
   test('shows the bottom-right nudge and opens the full tour', async ({ orcaPage }) => {
@@ -132,20 +134,17 @@ test.describe('Feature tour modal', () => {
       if (!store) {
         throw new Error('window.__store is not available')
       }
+      store.getState().closeModal()
       store.getState().showFeatureTourNudge()
     })
 
     const nudge = orcaPage.getByRole('complementary', {
-      name: "Explore some of Orca's features"
+      name: 'Take the Orca feature tour'
     })
     await expect(nudge).toBeVisible()
-    await expect(nudge.getByText('GitHub & Linear, native')).toBeVisible()
-    await expect(
-      nudge.getByText(
-        'Browse GitHub and Linear tasks in-app. Start worktrees, review PRs, and approve without switching context.'
-      )
-    ).toBeVisible()
-    await expect(nudge.getByText('Reopen this any time from Help > Feature tour.')).toBeVisible()
+    await expect(nudge.getByText('Start work')).toBeVisible()
+    await expect(nudge.getByText(/Pick an issue, create an isolated worktree/)).toBeVisible()
+    await expect(nudge.getByText('Reopen any time from Help > Feature tour.')).toBeVisible()
     await expect
       .poll(
         () =>
@@ -159,10 +158,10 @@ test.describe('Feature tour modal', () => {
       .toBe(true)
     await expect(nudge.locator('img')).toHaveAttribute('src', /tile-03/)
 
-    await nudge.getByRole('button', { name: /^Open tour$/ }).click()
-    await expect(
-      orcaPage.getByRole('dialog', { name: "Explore some of Orca's features" })
-    ).toBeVisible()
+    const takeTourButton = nudge.getByRole('button', { name: /^Take the tour$/ })
+    await expect(takeTourButton).toBeVisible()
+    await takeTourButton.click()
+    await expect(orcaPage.getByRole('dialog', { name: 'Get to know Orca' })).toBeVisible()
     await expect
       .poll(async () => getStoreState<boolean>(orcaPage, 'featureTourNudgeVisible'))
       .toBe(false)

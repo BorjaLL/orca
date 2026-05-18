@@ -2,19 +2,18 @@ import { useEffect, useState } from 'react'
 import type { JSX } from 'react'
 import { PlayCircle, X } from 'lucide-react'
 import {
-  FEATURE_WALL_TILES,
-  isFeatureWallMediaTile,
-  type FeatureWallMediaTile
-} from '../../../../shared/feature-wall-tiles'
+  DEFAULT_FEATURE_WALL_WORKFLOW_ID,
+  getFeatureWallMediaTile,
+  getFeatureWallWorkflow
+} from '../../../../shared/feature-wall-workflows'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { toFeatureWallAssetUrl, useFeatureWallAssetBaseUrl } from './feature-wall-assets'
 
-const FEATURE_TOUR_NUDGE_TILE = FEATURE_WALL_TILES.find(
-  (tile): tile is FeatureWallMediaTile => tile.id === 'tile-03' && isFeatureWallMediaTile(tile)
-)
+const NUDGE_WORKFLOW = getFeatureWallWorkflow(DEFAULT_FEATURE_WALL_WORKFLOW_ID)
+const NUDGE_TILE = NUDGE_WORKFLOW ? getFeatureWallMediaTile(NUDGE_WORKFLOW.primaryTileId) : null
 
 export function FeatureTourNudge(): JSX.Element | null {
   const visible = useAppStore((s) => s.featureTourNudgeVisible)
@@ -26,12 +25,8 @@ export function FeatureTourNudge(): JSX.Element | null {
   const assetBaseUrl = useFeatureWallAssetBaseUrl(shouldRender)
   const [mediaFailed, setMediaFailed] = useState(false)
   const [mediaLoaded, setMediaLoaded] = useState(false)
-  const gifUrl = FEATURE_TOUR_NUDGE_TILE
-    ? toFeatureWallAssetUrl(assetBaseUrl, FEATURE_TOUR_NUDGE_TILE.gifPath)
-    : null
-  const posterUrl = FEATURE_TOUR_NUDGE_TILE
-    ? toFeatureWallAssetUrl(assetBaseUrl, FEATURE_TOUR_NUDGE_TILE.posterPath)
-    : null
+  const gifUrl = NUDGE_TILE ? toFeatureWallAssetUrl(assetBaseUrl, NUDGE_TILE.gifPath) : null
+  const posterUrl = NUDGE_TILE ? toFeatureWallAssetUrl(assetBaseUrl, NUDGE_TILE.posterPath) : null
   const mediaUrl = gifUrl ?? posterUrl
   const updateCardVisible = updateStatus.state !== 'idle' && updateStatus.state !== 'not-available'
 
@@ -53,7 +48,7 @@ export function FeatureTourNudge(): JSX.Element | null {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [dismissFeatureTourNudge, shouldRender])
 
-  if (!shouldRender || !FEATURE_TOUR_NUDGE_TILE) {
+  if (!shouldRender || !NUDGE_WORKFLOW) {
     return null
   }
 
@@ -74,16 +69,16 @@ export function FeatureTourNudge(): JSX.Element | null {
       <Card
         className="cursor-pointer gap-0 overflow-hidden py-0"
         role="complementary"
-        aria-label="Explore some of Orca's features"
+        aria-label="Take the Orca feature tour"
         onClick={handleOpenTour}
       >
         <div className="flex flex-col gap-3 p-3.5">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 space-y-0.5">
               <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                Explore some of Orca&apos;s features
+                Take the tour
               </div>
-              <h3 className="truncate text-sm font-semibold">{FEATURE_TOUR_NUDGE_TILE.title}</h3>
+              <h3 className="truncate text-sm font-semibold">{NUDGE_WORKFLOW.title}</h3>
             </div>
             <Button
               variant="ghost"
@@ -122,7 +117,7 @@ export function FeatureTourNudge(): JSX.Element | null {
               />
             ) : (
               <div className="flex size-full items-end p-3 text-sm font-semibold text-foreground">
-                {FEATURE_TOUR_NUDGE_TILE.title}
+                {NUDGE_WORKFLOW.title}
               </div>
             )}
           </button>
@@ -131,15 +126,15 @@ export function FeatureTourNudge(): JSX.Element | null {
             className="line-clamp-2 text-xs leading-snug text-muted-foreground"
             data-feature-tour-nudge-caption
           >
-            {FEATURE_TOUR_NUDGE_TILE.caption}
+            {NUDGE_WORKFLOW.lede}
           </p>
           <p className="text-xs leading-snug text-muted-foreground">
-            Reopen this any time from Help &gt; Feature tour.
+            Reopen any time from Help &gt; Feature tour.
           </p>
 
           <Button variant="default" size="sm" className="w-full gap-1.5" onClick={handleOpenTour}>
             <PlayCircle className="size-3.5" />
-            Open tour
+            Take the tour
           </Button>
         </div>
       </Card>
