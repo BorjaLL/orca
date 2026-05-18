@@ -18,6 +18,7 @@ export type FeatureWallWorkflowId =
 // from the main process and tests.
 export type FeatureWallInAppActionId =
   | 'open-tasks'
+  | 'open-integrations-settings'
   | 'open-agent-settings'
   | 'focus-terminal'
   | 'open-ssh-settings'
@@ -46,9 +47,9 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
     id: 'tasks',
     title: 'Tasks',
     meta: 'GitHub · Linear',
-    lede: 'Find GitHub and Linear work in Tasks, then start from the item that needs attention.',
+    lede: 'Find connected GitHub or Linear work in Tasks, then start from the item that needs attention.',
     bullets: [
-      'Browse GitHub issues, PRs, and Linear tasks from one in-app view.',
+      'Browse connected issues, PRs, and tasks from one in-app view.',
       'Open comments, status, and review context without switching tools.',
       'Start a workspace from the task when you are ready to build.'
     ],

@@ -29,17 +29,16 @@ import {
 } from './feature-wall-rail-navigation'
 import { toFeatureWallAssetUrl, useFeatureWallAssetBaseUrl } from './feature-wall-assets'
 import { PreviewMedia, RelatedFeatures } from './FeatureWallPreview'
+import { useFeatureWallTaskSourcePresentation } from './use-feature-wall-task-source-presentation'
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 const NAVIGATION_KEYS = new Set<string>(['ArrowUp', 'ArrowDown', 'Home', 'End'])
-
 function getFeatureWallOpenSource(
   modalData: Record<string, unknown>
 ): FeatureWallOpenSourceTelemetry {
   const source = modalData.source
   return source === 'help_menu' || source === 'popup' ? source : 'unknown'
 }
-
 function usePrefersReducedMotion(): boolean {
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
@@ -63,9 +62,7 @@ function usePrefersReducedMotion(): boolean {
 
   return prefersReducedMotion
 }
-
 type InAppActionDispatcher = (action: FeatureWallInAppActionId) => void
-
 function useInAppActionDispatcher(closeModal: () => void): InAppActionDispatcher {
   const openTaskPage = useAppStore((s) => s.openTaskPage)
   const openSettingsPage = useAppStore((s) => s.openSettingsPage)
@@ -81,6 +78,10 @@ function useInAppActionDispatcher(closeModal: () => void): InAppActionDispatcher
       switch (action) {
         case 'open-tasks':
           openTaskPage()
+          return
+        case 'open-integrations-settings':
+          openSettingsTarget({ pane: 'integrations', repoId: null })
+          openSettingsPage()
           return
         case 'open-agent-settings':
           openSettingsTarget({ pane: 'agents', repoId: null })
@@ -125,10 +126,10 @@ export default function FeatureWallModal(): JSX.Element | null {
     [selectedId]
   )
   const selected = FEATURE_WALL_WORKFLOWS[selectedIndex]
+  const selectedPresentation = useFeatureWallTaskSourcePresentation(isOpen, selected)
   const primaryTile = getFeatureWallMediaTile(selected.primaryTileId)
   const posterUrl = primaryTile ? toFeatureWallAssetUrl(assetBaseUrl, primaryTile.posterPath) : null
   const gifUrl = primaryTile ? toFeatureWallAssetUrl(assetBaseUrl, primaryTile.gifPath) : null
-
   const emitCloseTelemetry = useCallback(() => {
     if (!telemetryRef.current.open) {
       return
@@ -166,7 +167,6 @@ export default function FeatureWallModal(): JSX.Element | null {
       emitCloseTelemetry()
     }
   }, [emitCloseTelemetry, isOpen, source])
-
   useEffect(() => {
     return () => emitCloseTelemetry()
   }, [emitCloseTelemetry])
@@ -340,7 +340,7 @@ export default function FeatureWallModal(): JSX.Element | null {
                 {selected.title}
               </h3>
               <p className="mt-1.5 max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
-                {selected.lede}
+                {selectedPresentation.lede}
               </p>
             </div>
 
@@ -355,7 +355,7 @@ export default function FeatureWallModal(): JSX.Element | null {
 
               <aside className="flex flex-col gap-5">
                 <ul className="flex flex-col gap-2.5" role="list">
-                  {selected.bullets.map((bullet) => (
+                  {selectedPresentation.bullets.map((bullet) => (
                     <li
                       key={bullet}
                       className="flex items-start gap-2.5 text-[13px] leading-relaxed"
@@ -385,9 +385,9 @@ export default function FeatureWallModal(): JSX.Element | null {
             </Button>
             <Button
               className="w-full sm:w-auto"
-              onClick={() => handlePrimaryCta(selected.primaryCta)}
+              onClick={() => handlePrimaryCta(selectedPresentation.primaryCta)}
             >
-              {selected.primaryCta.label}
+              {selectedPresentation.primaryCta.label}
               <ChevronRight className="size-3.5" />
             </Button>
           </div>

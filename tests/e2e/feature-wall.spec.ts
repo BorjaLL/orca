@@ -130,6 +130,55 @@ test.describe('Feature tour modal', () => {
     }
   })
 
+  test('routes disconnected task users to integrations setup', async ({ orcaPage }) => {
+    await orcaPage.evaluate(() => {
+      const store = window.__store
+      if (!store) {
+        throw new Error('window.__store is not available')
+      }
+      store.setState({
+        preflightStatus: {
+          git: { installed: true },
+          gh: { installed: true, authenticated: false },
+          glab: { installed: false, authenticated: false },
+          bitbucket: { configured: false, authenticated: false, account: null },
+          azureDevOps: {
+            configured: false,
+            authenticated: false,
+            account: null,
+            baseUrl: null,
+            tokenConfigured: false
+          },
+          gitea: {
+            configured: false,
+            authenticated: false,
+            account: null,
+            baseUrl: null,
+            tokenConfigured: false
+          }
+        },
+        preflightStatusChecked: true,
+        preflightStatusLoading: false,
+        linearStatus: { connected: false, viewer: null },
+        linearStatusChecked: true
+      })
+      store.getState().openModal('feature-wall', { source: 'help_menu' })
+    })
+
+    await expect(orcaPage.getByRole('dialog', { name: 'Get to know Orca' })).toBeVisible({
+      timeout: 10_000
+    })
+    await expect(orcaPage.getByText('Connect GitHub or Linear once')).toBeVisible()
+    await orcaPage.getByRole('button', { name: /Set up task sources/i }).click()
+
+    await expect.poll(async () => getStoreState<string>(orcaPage, 'activeView')).toBe('settings')
+    await expect(
+      orcaPage.locator('[data-settings-section="integrations"]').getByRole('heading', {
+        name: 'Integrations'
+      })
+    ).toBeVisible()
+  })
+
   test('shows the bottom-right nudge and opens the full tour', async ({ orcaPage }) => {
     await orcaPage.evaluate(() => {
       const store = window.__store

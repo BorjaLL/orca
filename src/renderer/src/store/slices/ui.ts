@@ -307,6 +307,7 @@ export type UISlice = {
   settingsNavigationTarget: {
     pane:
       | 'general'
+      | 'integrations'
       | 'browser'
       | 'appearance'
       | 'input'

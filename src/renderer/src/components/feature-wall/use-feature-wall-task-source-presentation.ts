@@ -1,0 +1,65 @@
+import { useEffect } from 'react'
+import type { FeatureWallWorkflow } from '../../../../shared/feature-wall-workflows'
+import { useAppStore } from '@/store'
+
+const DISCONNECTED_TASKS_WORKFLOW_COPY: Pick<
+  FeatureWallWorkflow,
+  'lede' | 'bullets' | 'primaryCta'
+> = {
+  lede: 'Connect GitHub or Linear once, then Tasks becomes the place to start from real work.',
+  bullets: [
+    'Set up GitHub with the gh CLI or add a Linear workspace from Integrations.',
+    'Use Tasks to browse issues, PRs, and Linear tickets in-app.',
+    'Start a workspace from the task when you are ready to build.'
+  ],
+  primaryCta: {
+    kind: 'in-app',
+    action: 'open-integrations-settings',
+    label: 'Set up task sources'
+  }
+}
+
+export function useFeatureWallTaskSourcePresentation(
+  isOpen: boolean,
+  selected: FeatureWallWorkflow
+): FeatureWallWorkflow {
+  const preflightStatus = useAppStore((s) => s.preflightStatus)
+  const preflightStatusChecked = useAppStore((s) => s.preflightStatusChecked)
+  const preflightStatusLoading = useAppStore((s) => s.preflightStatusLoading)
+  const refreshPreflightStatus = useAppStore((s) => s.refreshPreflightStatus)
+  const linearStatus = useAppStore((s) => s.linearStatus)
+  const linearStatusChecked = useAppStore((s) => s.linearStatusChecked)
+  const checkLinearConnection = useAppStore((s) => s.checkLinearConnection)
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+    // Why: the Tasks tour copy depends on whether a task source is already
+    // usable, so connected users should not see setup-oriented guidance.
+    if (!preflightStatusChecked) {
+      void refreshPreflightStatus()
+    }
+    if (!linearStatusChecked) {
+      void checkLinearConnection()
+    }
+  }, [
+    checkLinearConnection,
+    isOpen,
+    linearStatusChecked,
+    preflightStatusChecked,
+    refreshPreflightStatus
+  ])
+
+  const hasConnectedTaskSource =
+    (preflightStatus?.gh.installed === true && preflightStatus.gh.authenticated === true) ||
+    linearStatus.connected === true
+  const isCheckingTaskSources =
+    preflightStatusLoading || !preflightStatusChecked || !linearStatusChecked
+
+  if (selected.id !== 'tasks' || hasConnectedTaskSource || isCheckingTaskSources) {
+    return selected
+  }
+
+  return { ...selected, ...DISCONNECTED_TASKS_WORKFLOW_COPY }
+}
