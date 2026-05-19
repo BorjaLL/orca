@@ -2354,6 +2354,26 @@ describe('registerPtyHandlers', () => {
     }
   })
 
+  it('acknowledges pty writes only for owned PTYs', async () => {
+    const mockProc = createMockProc()
+    spawnMock.mockReturnValue(mockProc.proc)
+    registerPtyHandlers(mainWindow as never)
+    const result = (await handlers.get('pty:spawn')!(null, {
+      cols: 80,
+      rows: 24
+    })) as { id: string }
+
+    expect(handlers.get('pty:writeAccepted')!(null, { id: result.id, data: '\x03' })).toBe(true)
+    expect(mockProc.proc.write).toHaveBeenCalledWith('\x03')
+    expect(
+      handlers.get('pty:writeAccepted')!(null, {
+        id: 'missing-pty-for-write-ack',
+        data: '\x03'
+      })
+    ).toBe(false)
+    expect(mockProc.proc.write).toHaveBeenCalledTimes(1)
+  })
+
   it('upgrades legacy numeric pane keys when the spawn metadata proves the stable leaf', async () => {
     registerPtyHandlers(mainWindow as never)
     const leafId = '11111111-1111-4111-8111-111111111111'

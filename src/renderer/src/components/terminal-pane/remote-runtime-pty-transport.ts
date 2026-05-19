@@ -2,7 +2,8 @@
 import type { RuntimeRpcResponse } from '../../../../shared/runtime-rpc-envelope'
 import type {
   RuntimeMobileSessionTabsResult,
-  RuntimeTerminalCreate
+  RuntimeTerminalCreate,
+  RuntimeTerminalSend
 } from '../../../../shared/runtime-types'
 import type { PtyConnectResult, PtyTransport, IpcPtyTransportOptions } from './pty-dispatcher'
 import { createPtyOutputProcessor } from './pty-transport'
@@ -209,6 +210,29 @@ export function createRemoteRuntimePtyTransport(
       await callRuntime('terminal.close', { terminal: targetHandle })
     } catch {
       // Best-effort parity with local disconnect/kill.
+    }
+  }
+
+  async function sendInputAcceptedToRuntime(data: string): Promise<boolean> {
+    const targetHandle = handle
+    if (!connected || !targetHandle) {
+      return false
+    }
+    const normalized = normalizeRemoteTerminalInput(data)
+    if (!normalized) {
+      return true
+    }
+    const text = `${inputBatcher.takePending()}${normalized}`
+    try {
+      const result = await callRuntime<{ send: RuntimeTerminalSend }>('terminal.send', {
+        terminal: targetHandle,
+        text,
+        client: { id: clientId, type: 'desktop' }
+      })
+      return result.send.accepted === true
+    } catch (error) {
+      storedCallbacks.onError?.(runtimeTerminalErrorMessage(error))
+      return false
     }
   }
 
@@ -464,6 +488,8 @@ export function createRemoteRuntimePtyTransport(
       inputBatcher.push(normalized)
       return true
     },
+
+    sendInputAccepted: sendInputAcceptedToRuntime,
 
     resize(cols: number, rows: number): boolean {
       if (!connected || !handle) {

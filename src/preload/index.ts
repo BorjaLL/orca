@@ -585,6 +585,8 @@ const api = {
     write: (id: string, data: string): void => {
       ipcRenderer.send('pty:write', { id, data })
     },
+    writeAccepted: (id: string, data: string): Promise<boolean> =>
+      ipcRenderer.invoke('pty:writeAccepted', { id, data }),
 
     resize: (id: string, cols: number, rows: number): void => {
       ipcRenderer.send('pty:resize', { id, cols, rows })

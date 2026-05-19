@@ -113,6 +113,15 @@ type LastStatusFile = {
   entries: Record<string, EnrichedAgentHookEventPayload>
 }
 
+function equivalentInterruptAgentType(
+  actual: AgentType | undefined,
+  baseline: AgentType | undefined
+): boolean {
+  const normalizedActual = actual === 'unknown' ? undefined : actual
+  const normalizedBaseline = baseline === 'unknown' ? undefined : baseline
+  return normalizedActual === normalizedBaseline
+}
+
 // Why: paneKey is `${tabId}:${leafUuid}` — validate the durable leaf suffix
 // at write/hydrate time so legacy numeric rows fail closed.
 export function isValidPaneKey(value: unknown): value is string {
@@ -180,6 +189,7 @@ function sanitizeHydratedEntry(
     tabId: typeof tabId === 'string' ? tabId : undefined,
     worktreeId: typeof worktreeId === 'string' ? worktreeId : undefined,
     connectionId,
+    hasExplicitPrompt: record.hasExplicitPrompt === true ? true : undefined,
     payload,
     receivedAt,
     stateStartedAt
@@ -311,7 +321,7 @@ export class AgentHookServer {
     // including same-millisecond prompt or agent identity changes.
     if (
       payload.state !== 'working' ||
-      agentType !== request.baselineAgentType ||
+      !equivalentInterruptAgentType(agentType, request.baselineAgentType) ||
       payload.prompt !== request.baselinePrompt ||
       existing.receivedAt !== request.baselineUpdatedAt ||
       existing.stateStartedAt !== request.baselineStateStartedAt ||
@@ -391,7 +401,9 @@ export class AgentHookServer {
       payload.payload.state === 'working' &&
       previous.payload.agentType === payload.payload.agentType &&
       previous.payload.prompt === payload.payload.prompt &&
-      Date.now() - previous.receivedAt <= INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS
+      (payload.isReplay === true ||
+        (payload.hasExplicitPrompt !== true &&
+          Date.now() - previous.receivedAt <= INTERRUPTED_DONE_LATE_WORKING_SUPPRESSION_MS))
     ) {
       return previous
     }
@@ -593,6 +605,8 @@ export class AgentHookServer {
       worktreeId?: string
       env?: string
       version?: string
+      hasExplicitPrompt?: boolean
+      isReplay?: boolean
       payload: unknown
     },
     connectionId: string
@@ -668,6 +682,8 @@ export class AgentHookServer {
       tabId,
       worktreeId,
       connectionId: trimmedConnectionId,
+      hasExplicitPrompt: envelope.hasExplicitPrompt === true ? true : undefined,
+      isReplay: envelope.isReplay === true ? true : undefined,
       payload: normalizedPayload
     }
     this.applyNormalizedStatus(event)

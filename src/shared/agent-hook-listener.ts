@@ -133,6 +133,11 @@ export type AgentHookEventPayload = {
    *  HTTP path always sets null because it cannot know which mux a request
    *  came from. See docs/design/agent-status-over-ssh.md §5. */
   connectionId: string | null
+  /** True when this hook event carried prompt text directly, instead of using
+   *  the listener's cached prompt from an earlier event in the same pane. */
+  hasExplicitPrompt?: boolean
+  /** True when this event is a relay cache replay rather than a live hook. */
+  isReplay?: boolean
   payload: ParsedAgentStatusPayload
 }
 
@@ -1973,7 +1978,16 @@ export function normalizeHookPayload(
   // it null; the relay forwards null on the wire and Orca's `ingestRemote`
   // stamps the real value from `mux` identity on receive. See
   // docs/design/agent-status-over-ssh.md §5.
-  return payload ? { paneKey, tabId, worktreeId, connectionId: null, payload } : null
+  return payload
+    ? {
+        paneKey,
+        tabId,
+        worktreeId,
+        connectionId: null,
+        hasExplicitPrompt: promptText.length > 0,
+        payload
+      }
+    : null
 }
 
 // ─── URL routing ────────────────────────────────────────────────────

@@ -34,6 +34,7 @@ import {
   isCtrlCKeyEvent,
   isPlainEscapeKeyEvent
 } from './agent-interrupt-inference'
+import type { AgentInterruptInputIntent } from '../../../../shared/agent-interrupt-intent'
 
 const pendingSpawnByPaneKey = new Map<string, Promise<string | null>>()
 const SSH_SESSION_EXPIRED_ERROR = 'SSH_SESSION_EXPIRED'
@@ -193,35 +194,112 @@ export function connectPanePty(
   // Use the stable layout leaf UUID, not the renderer-local numeric pane id.
   const cacheKey = makePaneKey(deps.tabId, pane.leafId)
   const pendingSpawnKey = cacheKey
-  const commandLifecycle = createTerminalCommandLifecycle({
-    onCommandFinished: () => {
-      const state = useAppStore.getState()
-      const entry = state.agentStatusByPaneKey[cacheKey]
-      // Why: OSC 133 D marks the foreground shell command exiting. Remove the
-      // row without retaining a done snapshot; this section represents a live
-      // agent process, and the shell prompt means that process is gone.
-      if (entry) {
-        state.dropAgentStatus(cacheKey)
-      }
-    }
-  })
-  commandLifecycle.attachXtermConsumer(pane.terminal)
   const interruptInference = createAgentInterruptInference({
     paneKey: cacheKey,
     getStatusEntry: () => useAppStore.getState().agentStatusByPaneKey[cacheKey],
     inferInterrupt: (request) => {
-      void window.api.agentStatus.inferInterrupt(request).catch((err) => {
+      return window.api.agentStatus.inferInterrupt(request).catch((err) => {
         console.warn('[agent-interrupt] inferInterrupt failed:', err)
+        return false
       })
     }
   })
+  const dropCommandFinishedStatusIfUnchanged = (entry: AgentStatusEntry | undefined): void => {
+    if (!entry) {
+      return
+    }
+    const state = useAppStore.getState()
+    const current = state.agentStatusByPaneKey[cacheKey]
+    if (
+      !current ||
+      current.state !== entry.state ||
+      current.prompt !== entry.prompt ||
+      current.updatedAt !== entry.updatedAt ||
+      current.stateStartedAt !== entry.stateStartedAt ||
+      current.agentType !== entry.agentType
+    ) {
+      return
+    }
+    state.dropAgentStatus(cacheKey)
+  }
+  let pendingTerminalInputIntent: AgentInterruptInputIntent | null = null
+  let clearPendingTerminalInputIntentTimer: ReturnType<typeof setTimeout> | null = null
+  const clearPendingTerminalInputIntent = (): void => {
+    pendingTerminalInputIntent = null
+    if (clearPendingTerminalInputIntentTimer !== null) {
+      clearTimeout(clearPendingTerminalInputIntentTimer)
+      clearPendingTerminalInputIntentTimer = null
+    }
+  }
+  const setPendingTerminalInputIntent = (intent: AgentInterruptInputIntent): void => {
+    clearPendingTerminalInputIntent()
+    pendingTerminalInputIntent = intent
+    clearPendingTerminalInputIntentTimer = setTimeout(() => {
+      clearPendingTerminalInputIntent()
+    }, 0)
+  }
+  const inputMatchesIntent = (intent: AgentInterruptInputIntent, data: string): boolean => {
+    return (
+      (intent === 'plain-escape' && data === '\x1b') || (intent === 'ctrl-c' && data === '\x03')
+    )
+  }
+  const observeSentTerminalInputIntent = (
+    data: string,
+    intent = pendingTerminalInputIntent
+  ): void => {
+    if (intent && inputMatchesIntent(intent, data)) {
+      interruptInference.observeInputIntent(intent)
+    }
+  }
+  let pendingTerminalInputWrite: Promise<void> | null = null
+  const setPendingTerminalInputWrite = (promise: Promise<void>): void => {
+    pendingTerminalInputWrite = promise
+    void promise.finally(() => {
+      if (pendingTerminalInputWrite === promise) {
+        pendingTerminalInputWrite = null
+      }
+    })
+  }
+  const flushPendingInterruptInference = (): boolean | Promise<boolean> => {
+    const pendingWrite = pendingTerminalInputWrite
+    if (!pendingWrite) {
+      return interruptInference.flushPending()
+    }
+    return pendingWrite.then(() => interruptInference.flushPending())
+  }
+  const commandLifecycle = createTerminalCommandLifecycle({
+    onCommandFinished: () => {
+      const state = useAppStore.getState()
+      const entry = state.agentStatusByPaneKey[cacheKey]
+      const inferenceResult = flushPendingInterruptInference()
+      if (inferenceResult === true) {
+        return
+      }
+      if (inferenceResult instanceof Promise) {
+        void inferenceResult.then((applied) => {
+          if (!applied) {
+            dropCommandFinishedStatusIfUnchanged(entry)
+          }
+        })
+        return
+      }
+      // Why: OSC 133 D marks the foreground shell command exiting. Remove the
+      // row without retaining a done snapshot; this section represents a live
+      // agent process, and the shell prompt means that process is gone.
+      dropCommandFinishedStatusIfUnchanged(entry)
+    }
+  })
+  commandLifecycle.attachXtermConsumer(pane.terminal)
   const onTerminalKeyDown = (event: KeyboardEvent): void => {
     if (isPlainEscapeKeyEvent(event)) {
-      interruptInference.observeInputIntent('plain-escape')
+      setPendingTerminalInputIntent('plain-escape')
       return
     }
     if (isCtrlCKeyEvent(event)) {
-      interruptInference.observeInputIntent('ctrl-c')
+      if (!navigator.userAgent.includes('Mac') && pane.terminal.hasSelection()) {
+        return
+      }
+      setPendingTerminalInputIntent('ctrl-c')
     }
   }
   // Why: infer only from focused xterm key events. Raw PTY bytes cannot
@@ -584,6 +662,7 @@ export function connectPanePty(
     // the block still holds during reconnect races before the live transport has
     // updated its local PTY binding.
     if (isCodexPaneStale({ tabId: deps.tabId, panePtyId: currentPtyId })) {
+      clearPendingTerminalInputIntent()
       return
     }
     // Why: presence-lock input drop. While mobile is the driver for this
@@ -594,6 +673,7 @@ export function connectPanePty(
     // The pty:write IPC has a defense-in-depth twin. See
     // docs/mobile-presence-lock.md.
     if (currentPtyId && isPtyLocked(currentPtyId)) {
+      clearPendingTerminalInputIntent()
       return
     }
     // Why: a real keystroke into the terminal is the unambiguous "user is
@@ -602,7 +682,32 @@ export function connectPanePty(
     // auto-replies never count as interaction.
     deps.clearTerminalTabUnread(deps.tabId)
     deps.clearWorktreeUnread(deps.worktreeId)
-    transport.sendInput(data)
+    const intent = pendingTerminalInputIntent
+    if (intent && transport.sendInputAccepted) {
+      clearPendingTerminalInputIntent()
+      const writePromise = transport
+        .sendInputAccepted(data)
+        .then((accepted) => {
+          if (accepted) {
+            observeSentTerminalInputIntent(data, intent)
+          }
+        })
+        .catch((err) => {
+          console.warn('[agent-interrupt] acknowledged terminal input failed:', err)
+        })
+      setPendingTerminalInputWrite(writePromise)
+      return
+    }
+    if (intent) {
+      transport.sendInput(data)
+      clearPendingTerminalInputIntent()
+      return
+    }
+    if (transport.sendInput(data)) {
+      observeSentTerminalInputIntent(data)
+    } else {
+      clearPendingTerminalInputIntent()
+    }
   })
 
   const onResizeDisposable = pane.terminal.onResize(({ cols, rows }) => {
@@ -1454,6 +1559,8 @@ export function connectPanePty(
       if (terminalKeyTargetSupportsEvents) {
         terminalKeyTarget.removeEventListener('keydown', onTerminalKeyDown, { capture: true })
       }
+      clearPendingTerminalInputIntent()
+      pendingTerminalInputWrite = null
       interruptInference.dispose()
       // Why: actively resolve any in-flight passphrase-gate waits so their
       // zustand subscribers + async IIFEs don't hang for the rest of the

@@ -11,13 +11,14 @@ import { isExplicitAgentStatusFresh } from '@/lib/agent-status'
 
 export type AgentInterruptInference = {
   observeInputIntent(intent: AgentInterruptInputIntent): void
+  flushPending(): boolean | Promise<boolean>
   dispose(): void
 }
 
 type AgentInterruptInferenceDeps = {
   paneKey: string
   getStatusEntry: () => AgentStatusEntry | undefined
-  inferInterrupt: (request: AgentInterruptInferenceRequest) => void
+  inferInterrupt: (request: AgentInterruptInferenceRequest) => boolean | Promise<boolean> | void
   now?: () => number
   setTimer?: (callback: () => void, ms: number) => ReturnType<typeof setTimeout>
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void
@@ -121,28 +122,31 @@ export function createAgentInterruptInference({
     }
   }
 
-  const flushPending = (): void => {
+  const flushPending = (): boolean | Promise<boolean> => {
     const baseline = pendingBaseline
     pendingTimer = null
     pendingBaseline = null
     if (!baseline) {
-      return
+      return false
     }
 
     const entry = getStatusEntry()
     if (
-      !entry ||
-      entry.state !== 'working' ||
-      entry.agentType !== baseline.agentType ||
-      entry.prompt !== baseline.prompt ||
-      entry.updatedAt !== baseline.updatedAt ||
-      entry.stateStartedAt !== baseline.stateStartedAt ||
-      !isExplicitAgentStatusFresh(entry, now(), AGENT_STATUS_STALE_AFTER_MS)
+      entry &&
+      (entry.state !== 'working' ||
+        entry.agentType !== baseline.agentType ||
+        entry.prompt !== baseline.prompt ||
+        entry.updatedAt !== baseline.updatedAt ||
+        entry.stateStartedAt !== baseline.stateStartedAt ||
+        !isExplicitAgentStatusFresh(entry, now(), AGENT_STATUS_STALE_AFTER_MS))
     ) {
-      return
+      return false
+    }
+    if (!entry && now() - baseline.updatedAt > AGENT_STATUS_STALE_AFTER_MS) {
+      return false
     }
 
-    inferInterrupt({
+    const result = inferInterrupt({
       paneKey,
       baselineUpdatedAt: baseline.updatedAt,
       baselineStateStartedAt: baseline.stateStartedAt,
@@ -151,6 +155,11 @@ export function createAgentInterruptInference({
       intent: baseline.intent,
       ...(baseline.inputCount !== undefined ? { inputCount: baseline.inputCount } : {})
     })
+    return result ?? true
+  }
+
+  const flushPendingFromTimer = (): void => {
+    void flushPending()
   }
 
   return {
@@ -181,8 +190,9 @@ export function createAgentInterruptInference({
         clearPendingTimer()
       }
       pendingBaseline = baseline
-      pendingTimer = setTimer(flushPending, AGENT_INTERRUPT_SETTLE_MS)
+      pendingTimer = setTimer(flushPendingFromTimer, AGENT_INTERRUPT_SETTLE_MS)
     },
+    flushPending,
     dispose() {
       clearPending()
     }

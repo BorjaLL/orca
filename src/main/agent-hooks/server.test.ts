@@ -360,6 +360,361 @@ describe('AgentHookServer listener replay', () => {
     }
   })
 
+  it('allows an immediate same-prompt retry after an inferred interrupt', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          hasExplicitPrompt: true,
+          payload: { state: 'working', prompt: 'retryable task', agentType: 'pi' }
+        },
+        'conn-1'
+      )
+      const baseline = server.getStatusSnapshot()[0]
+
+      vi.setSystemTime(1_500)
+      expect(
+        server.inferInterrupt({
+          paneKey: PANE,
+          baselineUpdatedAt: baseline.receivedAt,
+          baselineStateStartedAt: baseline.stateStartedAt,
+          baselinePrompt: 'retryable task',
+          baselineAgentType: 'pi',
+          intent: 'ctrl-c'
+        })
+      ).toBe(true)
+
+      vi.setSystemTime(2_000)
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          hasExplicitPrompt: true,
+          payload: { state: 'working', prompt: 'retryable task', agentType: 'pi' }
+        },
+        'conn-1'
+      )
+
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          state: 'working',
+          prompt: 'retryable task',
+          agentType: 'pi',
+          receivedAt: 2_000,
+          stateStartedAt: 2_000
+        })
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('allows a same-prompt working hook after the stale suppression window', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: { state: 'working', prompt: 'repeat task', agentType: 'pi' }
+        },
+        'conn-1'
+      )
+      const baseline = server.getStatusSnapshot()[0]
+
+      vi.setSystemTime(1_500)
+      expect(
+        server.inferInterrupt({
+          paneKey: PANE,
+          baselineUpdatedAt: baseline.receivedAt,
+          baselineStateStartedAt: baseline.stateStartedAt,
+          baselinePrompt: 'repeat task',
+          baselineAgentType: 'pi',
+          intent: 'ctrl-c'
+        })
+      ).toBe(true)
+
+      vi.setSystemTime(16_501)
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: {
+            state: 'working',
+            prompt: 'repeat task',
+            agentType: 'pi',
+            toolName: 'bash',
+            toolInput: '/bin/sleep 90'
+          }
+        },
+        'conn-1'
+      )
+
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          state: 'working',
+          prompt: 'repeat task',
+          agentType: 'pi',
+          receivedAt: 16_501,
+          stateStartedAt: 16_501
+        })
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects malformed inferred interrupt requests without throwing', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: { state: 'working', prompt: 'long task', agentType: 'codex' }
+        },
+        'conn-1'
+      )
+      const malformed: unknown[] = [
+        {
+          paneKey: 'tab-1:0',
+          baselineUpdatedAt: 1_000,
+          baselineStateStartedAt: 1_000,
+          baselinePrompt: 'long task',
+          baselineAgentType: 'codex',
+          intent: 'ctrl-c'
+        },
+        {
+          paneKey: PANE,
+          baselineUpdatedAt: 1_000,
+          baselineStateStartedAt: 1_000,
+          baselinePrompt: 'long task',
+          baselineAgentType: 'codex',
+          intent: 'sigint'
+        },
+        {
+          paneKey: PANE,
+          baselineUpdatedAt: '1_000',
+          baselineStateStartedAt: 1_000,
+          baselinePrompt: 'long task',
+          baselineAgentType: 'codex',
+          intent: 'ctrl-c'
+        },
+        {
+          paneKey: PANE,
+          baselineUpdatedAt: 1_000,
+          baselineStateStartedAt: 1_000,
+          baselinePrompt: 123,
+          baselineAgentType: 'codex',
+          intent: 'ctrl-c'
+        }
+      ]
+
+      for (const request of malformed) {
+        expect(() =>
+          server.inferInterrupt(request as Parameters<AgentHookServer['inferInterrupt']>[0])
+        ).not.toThrow()
+        expect(
+          server.inferInterrupt(request as Parameters<AgentHookServer['inferInterrupt']>[0])
+        ).toBe(false)
+      }
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          state: 'working',
+          prompt: 'long task',
+          agentType: 'codex'
+        })
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('allows an immediate same-prompt retry that carries cached turn detail', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: {
+            state: 'working',
+            prompt: 'retryable task',
+            agentType: 'opencode',
+            lastAssistantMessage: 'partial answer'
+          }
+        },
+        'conn-1'
+      )
+      const baseline = server.getStatusSnapshot()[0]
+
+      vi.setSystemTime(1_500)
+      expect(
+        server.inferInterrupt({
+          paneKey: PANE,
+          baselineUpdatedAt: baseline.receivedAt,
+          baselineStateStartedAt: baseline.stateStartedAt,
+          baselinePrompt: 'retryable task',
+          baselineAgentType: 'opencode',
+          intent: 'ctrl-c'
+        })
+      ).toBe(true)
+
+      vi.setSystemTime(2_000)
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          hasExplicitPrompt: true,
+          payload: {
+            state: 'working',
+            prompt: 'retryable task',
+            agentType: 'opencode',
+            lastAssistantMessage: 'partial answer'
+          }
+        },
+        'conn-1'
+      )
+
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          state: 'working',
+          prompt: 'retryable task',
+          agentType: 'opencode',
+          lastAssistantMessage: 'partial answer',
+          receivedAt: 2_000,
+          stateStartedAt: 2_000
+        })
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('suppresses replayed same-prompt working events after an inferred interrupt', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          hasExplicitPrompt: true,
+          payload: {
+            state: 'working',
+            prompt: 'retryable task',
+            agentType: 'opencode',
+            lastAssistantMessage: 'partial answer'
+          }
+        },
+        'conn-1'
+      )
+      const baseline = server.getStatusSnapshot()[0]
+
+      vi.setSystemTime(1_500)
+      expect(
+        server.inferInterrupt({
+          paneKey: PANE,
+          baselineUpdatedAt: baseline.receivedAt,
+          baselineStateStartedAt: baseline.stateStartedAt,
+          baselinePrompt: 'retryable task',
+          baselineAgentType: 'opencode',
+          intent: 'ctrl-c'
+        })
+      ).toBe(true)
+
+      vi.setSystemTime(20_000)
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          hasExplicitPrompt: true,
+          isReplay: true,
+          payload: {
+            state: 'working',
+            prompt: 'retryable task',
+            agentType: 'opencode',
+            lastAssistantMessage: 'partial answer'
+          }
+        },
+        'conn-1'
+      )
+
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          state: 'done',
+          prompt: 'retryable task',
+          agentType: 'opencode',
+          interrupted: true,
+          receivedAt: 1_500,
+          stateStartedAt: 1_500
+        })
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('matches renderer unknown sentinel to an omitted hook agent type', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const server = new AgentHookServer()
+      server.ingestRemote(
+        {
+          paneKey: PANE,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          payload: { state: 'working', prompt: 'custom hook' }
+        },
+        'conn-1'
+      )
+      const baseline = server.getStatusSnapshot()[0]
+
+      vi.setSystemTime(1_500)
+      expect(
+        server.inferInterrupt({
+          paneKey: PANE,
+          baselineUpdatedAt: baseline.receivedAt,
+          baselineStateStartedAt: baseline.stateStartedAt,
+          baselinePrompt: 'custom hook',
+          baselineAgentType: 'unknown',
+          intent: 'ctrl-c'
+        })
+      ).toBe(true)
+
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({
+          state: 'done',
+          prompt: 'custom hook',
+          interrupted: true
+        })
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rejects inferred interrupts for stale and non-working rows', () => {
     vi.useFakeTimers()
     vi.setSystemTime(1_000)

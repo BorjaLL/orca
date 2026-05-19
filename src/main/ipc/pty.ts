@@ -567,6 +567,7 @@ export function registerPtyHandlers(
   ipcMain.removeHandler('pty:declarePendingPaneSerializer')
   ipcMain.removeHandler('pty:settlePaneSerializer')
   ipcMain.removeHandler('pty:clearPendingPaneSerializer')
+  ipcMain.removeHandler('pty:writeAccepted')
   ipcMain.removeAllListeners('pty:write')
   ipcMain.removeAllListeners('pty:ackColdRestore')
   ipcMain.removeAllListeners('pty:serializeBuffer:response')
@@ -1537,7 +1538,7 @@ export function registerPtyHandlers(
     }
   )
 
-  ipcMain.on('pty:write', (_event, args: { id: string; data: string }) => {
+  const writePtyInput = (args: { id: string; data: string }): boolean => {
     // Why: defense-in-depth for the mobile-presence lock. The renderer's
     // xterm.onData guard already drops desktop keystrokes when mobile is
     // driving, but a stale view between the main-side state flip and the
@@ -1545,9 +1546,51 @@ export function registerPtyHandlers(
     // This server-side check catches it. See
     // docs/mobile-presence-lock.md.
     if (runtime?.getDriver(args.id).kind === 'mobile') {
-      return
+      return false
     }
-    tryGetProviderForPty(args.id)?.write(args.id, args.data)
+    if (!ptyOwnership.has(args.id)) {
+      return false
+    }
+    const provider = tryGetProviderForPty(args.id)
+    if (!provider) {
+      return false
+    }
+    try {
+      provider.write(args.id, args.data)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const writePtyInputAccepted = (args: { id: string; data: string }): boolean => {
+    if (runtime?.getDriver(args.id).kind === 'mobile') {
+      return false
+    }
+    // Why: the acknowledgement is used to infer Ctrl+C/Escape actually reached
+    // the local PTY. SSH providers are fire-and-forget relay notifications, so
+    // they cannot truthfully acknowledge until the relay protocol grows a write
+    // request/response.
+    if (ptyOwnership.get(args.id) !== null) {
+      return false
+    }
+    const provider = tryGetProviderForPty(args.id)
+    if (!provider?.hasPty?.(args.id)) {
+      return false
+    }
+    try {
+      provider.write(args.id, args.data)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  ipcMain.on('pty:write', (_event, args: { id: string; data: string }) => {
+    writePtyInput(args)
+  })
+  ipcMain.handle('pty:writeAccepted', (_event, args: { id: string; data: string }): boolean => {
+    return writePtyInputAccepted(args)
   })
 
   // Why: resize is fire-and-forget — the renderer doesn't need a reply.

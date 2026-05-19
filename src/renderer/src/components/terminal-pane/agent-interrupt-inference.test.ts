@@ -22,6 +22,18 @@ function makeEntry(overrides: Partial<AgentStatusEntry> = {}): AgentStatusEntry 
   }
 }
 
+function keyEvent(overrides: Partial<KeyboardEvent>): KeyboardEvent {
+  return {
+    key: '',
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    repeat: false,
+    ...overrides
+  } as KeyboardEvent
+}
+
 describe('agent interrupt inference', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -229,7 +241,26 @@ describe('agent interrupt inference', () => {
     tracker.dispose()
   })
 
-  it('cancels when the status disappears during the settle window', () => {
+  it('cancels when a normal done hook arrives during the settle window', () => {
+    vi.useFakeTimers()
+    const inferInterrupt = vi.fn()
+    let entry: AgentStatusEntry | undefined = makeEntry()
+    const tracker = createAgentInterruptInference({
+      paneKey: PANE_KEY,
+      getStatusEntry: () => entry,
+      inferInterrupt,
+      now: () => 1_100
+    })
+
+    tracker.observeInputIntent('ctrl-c')
+    entry = makeEntry({ state: 'done', updatedAt: 1_050, stateStartedAt: 1_050 })
+    vi.advanceTimersByTime(500)
+
+    expect(inferInterrupt).not.toHaveBeenCalled()
+    tracker.dispose()
+  })
+
+  it('emits the captured baseline when the renderer status disappears during the settle window', () => {
     vi.useFakeTimers()
     const inferInterrupt = vi.fn()
     let entry: AgentStatusEntry | undefined = makeEntry()
@@ -244,80 +275,46 @@ describe('agent interrupt inference', () => {
     entry = undefined
     vi.advanceTimersByTime(500)
 
-    expect(inferInterrupt).not.toHaveBeenCalled()
+    expect(inferInterrupt).toHaveBeenCalledWith({
+      paneKey: PANE_KEY,
+      baselineUpdatedAt: 1_000,
+      baselineStateStartedAt: 900,
+      baselinePrompt: 'write tests',
+      baselineAgentType: 'codex',
+      intent: 'plain-escape'
+    })
     tracker.dispose()
   })
 
+  it('dispose cancels a pending inference timer', () => {
+    vi.useFakeTimers()
+    const inferInterrupt = vi.fn()
+    const tracker = createAgentInterruptInference({
+      paneKey: PANE_KEY,
+      getStatusEntry: () => makeEntry(),
+      inferInterrupt,
+      now: () => 1_100
+    })
+
+    tracker.observeInputIntent('ctrl-c')
+    tracker.dispose()
+    vi.advanceTimersByTime(500)
+
+    expect(inferInterrupt).not.toHaveBeenCalled()
+  })
+
   it('requires exact plain Escape and Ctrl+C key events', () => {
-    expect(
-      isPlainEscapeKeyEvent({
-        key: 'Escape',
-        ctrlKey: false,
-        metaKey: false,
-        altKey: false,
-        shiftKey: false,
-        repeat: false
-      } as KeyboardEvent)
-    ).toBe(true)
-    expect(
-      isPlainEscapeKeyEvent({
-        key: 'Escape',
-        ctrlKey: false,
-        metaKey: false,
-        altKey: true,
-        shiftKey: false,
-        repeat: false
-      } as KeyboardEvent)
-    ).toBe(false)
-    expect(
-      isPlainEscapeKeyEvent({
-        key: 'c',
-        ctrlKey: true,
-        metaKey: false,
-        altKey: false,
-        shiftKey: false,
-        repeat: false
-      } as KeyboardEvent)
-    ).toBe(false)
-    expect(
-      isCtrlCKeyEvent({
-        key: 'c',
-        ctrlKey: true,
-        metaKey: false,
-        altKey: false,
-        shiftKey: false,
-        repeat: false
-      } as KeyboardEvent)
-    ).toBe(true)
-    expect(
-      isCtrlCKeyEvent({
-        key: 'C',
-        ctrlKey: true,
-        metaKey: false,
-        altKey: false,
-        shiftKey: false,
-        repeat: false
-      } as KeyboardEvent)
-    ).toBe(true)
-    expect(
-      isCtrlCKeyEvent({
-        key: 'c',
-        ctrlKey: true,
-        metaKey: true,
-        altKey: false,
-        shiftKey: false,
-        repeat: false
-      } as KeyboardEvent)
-    ).toBe(false)
-    expect(
-      isCtrlCKeyEvent({
-        key: 'c',
-        ctrlKey: true,
-        metaKey: false,
-        altKey: false,
-        shiftKey: false,
-        repeat: true
-      } as KeyboardEvent)
-    ).toBe(false)
+    expect(isPlainEscapeKeyEvent(keyEvent({ key: 'Escape' }))).toBe(true)
+    expect(isCtrlCKeyEvent(keyEvent({ key: 'c', ctrlKey: true }))).toBe(true)
+    expect(isCtrlCKeyEvent(keyEvent({ key: 'C', ctrlKey: true }))).toBe(true)
+    for (const event of [
+      keyEvent({ key: 'Escape', altKey: true }),
+      keyEvent({ key: 'Escape', shiftKey: true }),
+      keyEvent({ key: 'Escape', repeat: true }),
+      keyEvent({ key: 'c', ctrlKey: true, metaKey: true }),
+      keyEvent({ key: 'c', ctrlKey: true, repeat: true })
+    ]) {
+      expect(isPlainEscapeKeyEvent(event) || isCtrlCKeyEvent(event)).toBe(false)
+    }
   })
 })
