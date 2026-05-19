@@ -735,15 +735,9 @@ const api = {
   crashReports: {
     getLatestPending: () => ipcRenderer.invoke('crashReports:getLatestPending'),
     dismiss: (args: { reportId: string }) => ipcRenderer.invoke('crashReports:dismiss', args),
+    markSent: (args: { reportId: string }) => ipcRenderer.invoke('crashReports:markSent', args),
     copyLatestDiagnostics: (args?: { reportId?: string; notes?: string }) =>
-      ipcRenderer.invoke('crashReports:copyLatestDiagnostics', args),
-    submit: (args: {
-      reportId?: string
-      notes?: string
-      submitAnonymously?: boolean
-      githubLogin: string | null
-      githubEmail: string | null
-    }) => ipcRenderer.invoke('crashReports:submit', args)
+      ipcRenderer.invoke('crashReports:copyLatestDiagnostics', args)
   },
 
   export: {
@@ -1171,6 +1165,21 @@ const api = {
     ipcRenderer.invoke('telemetry:acknowledgeBanner'),
   telemetryGetConsentState: (): Promise<TelemetryConsentState> =>
     ipcRenderer.invoke('telemetry:getConsentState'),
+
+  // Why: diagnostics is the renderer-facing surface for the error-tracking
+  // lane (telemetry-error-tracking.md §User controls). All five channels
+  // are gated by main-side handlers that strictly type-narrow their inputs
+  // (renderer is untrusted by design); the bridges here are deliberately
+  // loose for the same reason the telemetry bridges are.
+  diagnostics: {
+    getStatus: (): Promise<unknown> => ipcRenderer.invoke('diagnostics:getStatus'),
+    openTraceFolder: (): Promise<void> => ipcRenderer.invoke('diagnostics:openTraceFolder'),
+    clearTraces: (): Promise<void> => ipcRenderer.invoke('diagnostics:clearTraces'),
+    collectBundle: (lookbackMinutes?: number): Promise<unknown> =>
+      ipcRenderer.invoke('diagnostics:collectBundle', lookbackMinutes),
+    uploadBundle: (payload: string, bundleSubmissionId: string): Promise<unknown> =>
+      ipcRenderer.invoke('diagnostics:uploadBundle', payload, bundleSubmissionId)
+  },
 
   settings: {
     get: (): Promise<unknown> => ipcRenderer.invoke('settings:get'),
