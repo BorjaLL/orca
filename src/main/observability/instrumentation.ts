@@ -37,7 +37,9 @@ export async function withGitSpan<T>(meta: GitSpanArgs, fn: () => Promise<T>): P
     'git.exec',
     async (span) => {
       span.setAttribute('git.subcommand', meta.args[0] ?? '<none>')
-      span.setAttribute('git.args', meta.args.slice(0, 16).join(' '))
+      // Why: git args can contain commit messages, branch names, remotes, or
+      // paths. Keep cardinality without copying user-authored content.
+      span.setAttribute('git.arg_count', meta.args.length)
       if (meta.cwd) {
         span.setAttribute('cwd', meta.cwd)
       }

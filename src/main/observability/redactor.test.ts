@@ -1,3 +1,4 @@
+/* oxlint-disable max-lines -- Why: the redactor has intentionally broad fixture coverage across every secret location and key-shape rule; keeping it together makes gaps visible. */
 // Fixture-based test suite for the redactor. Each provider-key shape is
 // exercised in three locations (attribute value, span event message,
 // exit-status `cause`) — that's the contract telemetry-error-tracking.md
@@ -163,6 +164,50 @@ describe('redactor — attribute-key blocklist', () => {
     const out = redactAttributes({ 'headers.authorization': 'Bearer x' })
     expect(out).not.toHaveProperty('headers.authorization')
   })
+  it('drops structured secret-bearing keys with plain values', () => {
+    const out = redactAttributes({
+      token: 'plain-token',
+      api_key: 'plain-api-key',
+      password: 'plain-password',
+      secret: 'plain-secret',
+      keep: 'ok'
+    })
+    expect(out).not.toHaveProperty('token')
+    expect(out).not.toHaveProperty('api_key')
+    expect(out).not.toHaveProperty('password')
+    expect(out).not.toHaveProperty('secret')
+    expect(out.keep).toBe('ok')
+  })
+  it('drops compound structured secret-bearing keys with plain values', () => {
+    const out = redactValue({
+      ANTHROPIC_API_KEY: 'plain-anthropic',
+      client_secret: 'plain-client',
+      accessToken: 'plain-access',
+      refreshToken: 'plain-refresh',
+      'x-api-key': 'plain-x-api',
+      private_key: 'plain-private',
+      auth_token: 'plain-auth',
+      AUTH_TOKEN: 'plain-auth-upper',
+      sessionToken: 'plain-session',
+      githubToken: 'plain-github',
+      DB_PASSWORD: 'plain-db',
+      serverSecretKey: 'plain-server',
+      keep: 'ok'
+    }) as Record<string, unknown>
+    expect(out).not.toHaveProperty('ANTHROPIC_API_KEY')
+    expect(out).not.toHaveProperty('client_secret')
+    expect(out).not.toHaveProperty('accessToken')
+    expect(out).not.toHaveProperty('refreshToken')
+    expect(out).not.toHaveProperty('x-api-key')
+    expect(out).not.toHaveProperty('private_key')
+    expect(out).not.toHaveProperty('auth_token')
+    expect(out).not.toHaveProperty('AUTH_TOKEN')
+    expect(out).not.toHaveProperty('sessionToken')
+    expect(out).not.toHaveProperty('githubToken')
+    expect(out).not.toHaveProperty('DB_PASSWORD')
+    expect(out).not.toHaveProperty('serverSecretKey')
+    expect(out.keep).toBe('ok')
+  })
   it('keeps non-blocklisted keys', () => {
     const out = redactAttributes({ path: '/Users/x/repo', method: 'GET' })
     expect(out).toHaveProperty('path')
@@ -171,6 +216,20 @@ describe('redactor — attribute-key blocklist', () => {
   it('preserves filesystem paths verbatim — they are diagnostic data', () => {
     const out = redactAttributes({ cwd: '/Users/brennanb/projects/orca' })
     expect(out.cwd).toBe('/Users/brennanb/projects/orca')
+  })
+  it('drops nested blocked keys while recursively redacting values', () => {
+    const out = redactValue({
+      request: {
+        headers: {
+          authorization: 'Bearer plain-secret',
+          cookie: 'sid=plain-secret',
+          keep: 'ok'
+        }
+      }
+    }) as { request: { headers: Record<string, unknown> } }
+    expect(out.request.headers).not.toHaveProperty('authorization')
+    expect(out.request.headers).not.toHaveProperty('cookie')
+    expect(out.request.headers.keep).toBe('ok')
   })
 })
 
@@ -195,6 +254,13 @@ describe('redactor — server mode adds install_id keys', () => {
     expect(server).not.toHaveProperty('installId')
     expect(server).not.toHaveProperty('distinct_id')
     expect(server).toHaveProperty('keep')
+  })
+  it('drops identity keys nested inside server-mode values', () => {
+    const out = redactValue({ context: { install_id: 'abc', keep: 'me' } }, 'server') as {
+      context: Record<string, unknown>
+    }
+    expect(out.context).not.toHaveProperty('install_id')
+    expect(out.context.keep).toBe('me')
   })
 })
 

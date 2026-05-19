@@ -469,7 +469,6 @@ export type DiagnosticsStatusPayload = {
 }
 export type DiagnosticsBundlePayload = {
   readonly bundleSubmissionId: string
-  readonly payload: string
   readonly bytes: number
   readonly spanCount: number
 }
@@ -1178,15 +1177,17 @@ export type PreloadApi = {
   /** Diagnostic-bundle / trace-folder controls. Surface for
    *  telemetry-error-tracking.md §User controls. The renderer triggers
    *  flows; main does the filesystem / network work and returns
-   *  serializable results. The shapes of the returned values are
-   *  duck-typed `unknown` here — call sites in the Privacy pane narrow
-   *  with their own zod schemas. */
+   *  serializable metadata. Main retains collected upload payloads so the
+   *  renderer can confirm without reading or substituting arbitrary bytes. */
   diagnostics: {
     getStatus: () => Promise<DiagnosticsStatusPayload>
     openTraceFolder: () => Promise<void>
     clearTraces: () => Promise<void>
     collectBundle: (lookbackMinutes?: number) => Promise<DiagnosticsBundlePayload>
-    uploadBundle: (payload: string, bundleSubmissionId: string) => Promise<DiagnosticsUploadPayload>
+    openBundlePreview: (bundleSubmissionId: string) => Promise<void>
+    discardBundlePreview: (bundleSubmissionId: string) => Promise<void>
+    uploadBundle: (bundleSubmissionId: string) => Promise<DiagnosticsUploadPayload>
+    deleteBundle: (ticketId: string) => Promise<void>
   }
   /** Read-only view of effective consent state, including the reason if
    *  disabled (env var / user opt-out / CI / pending banner). Used by the

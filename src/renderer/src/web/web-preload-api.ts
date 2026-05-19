@@ -110,6 +110,26 @@ function createWebPreloadApi(): Partial<PreloadApi> {
       markSent: () => Promise.resolve(null),
       copyLatestDiagnostics: () => Promise.resolve({ ok: false, error: 'Unavailable on web.' })
     },
+    diagnostics: {
+      getStatus: () =>
+        Promise.resolve({
+          localFileEnabled: false,
+          otlpEnabled: false,
+          bundleEnabled: false,
+          otlpStatus: 'Unavailable on web',
+          traceFilePath: '',
+          traceFamilySize: 0,
+          disabledReason: 'orca_diagnostics_disabled'
+        }),
+      openTraceFolder: () => Promise.resolve(),
+      clearTraces: () => Promise.resolve(),
+      collectBundle: () => Promise.reject(new Error('Diagnostic bundles are unavailable on web.')),
+      openBundlePreview: () =>
+        Promise.reject(new Error('Diagnostic bundles are unavailable on web.')),
+      discardBundlePreview: () => Promise.resolve(),
+      uploadBundle: () => Promise.reject(new Error('Diagnostic bundles are unavailable on web.')),
+      deleteBundle: () => Promise.reject(new Error('Diagnostic bundles are unavailable on web.'))
+    },
     session: {
       get: () => Promise.resolve(getStoredWorkspaceSession()),
       set: async (session) => {

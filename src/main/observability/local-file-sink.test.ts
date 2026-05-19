@@ -90,6 +90,65 @@ describe('local-file-sink — rotation', () => {
     expect(existsSync(file)).toBe(true)
   })
 
+  it('uses UTF-8 byte length for rotation accounting', () => {
+    const file = join(dir, 'test.ndjson')
+    const sink = createLocalFileSink({
+      filePath: file,
+      maxBytes: 90,
+      maxFiles: 3,
+      batchWindowMs: 100_000,
+      flushBufferThreshold: 1
+    })
+    sink.push({ payload: '😀'.repeat(15) })
+    sink.push({ payload: '😀'.repeat(15) })
+    sink.flush()
+    sink.close()
+
+    expect(listRotatedFiles(file, 3).length).toBeGreaterThan(1)
+  })
+
+  it('drops an individual record that exceeds the file byte cap', () => {
+    const file = join(dir, 'test.ndjson')
+    const sink = createLocalFileSink({
+      filePath: file,
+      maxBytes: 100,
+      maxFiles: 3,
+      batchWindowMs: 100_000,
+      flushBufferThreshold: 1
+    })
+    sink.push({ payload: 'x'.repeat(1_000) })
+    sink.push({ ok: true })
+    sink.flush()
+    sink.close()
+
+    const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean)
+    expect(lines.map((line) => JSON.parse(line))).toEqual([{ ok: true }])
+    expect(getRotatedFamilySize(file, 3)).toBeLessThanOrEqual(100)
+  })
+
+  it('splits an oversized buffered batch instead of dropping valid records', () => {
+    const file = join(dir, 'test.ndjson')
+    const sink = createLocalFileSink({
+      filePath: file,
+      maxBytes: 170,
+      maxFiles: 5,
+      batchWindowMs: 100_000,
+      flushBufferThreshold: 3
+    })
+    sink.push({ i: 1, payload: 'x'.repeat(60) })
+    sink.push({ i: 2, payload: 'x'.repeat(60) })
+    sink.push({ i: 3, payload: 'x'.repeat(60) })
+    sink.flush()
+    sink.close()
+
+    const allRecords = listRotatedFiles(file, 5)
+      .flatMap((path) => readFileSync(path, 'utf8').split('\n').filter(Boolean))
+      .map((line) => JSON.parse(line) as { i: number })
+      .map((record) => record.i)
+      .sort((a, b) => a - b)
+    expect(allRecords).toEqual([1, 2, 3])
+  })
+
   it('caps total disk usage at maxFiles × maxBytes (worst case)', () => {
     const file = join(dir, 'test.ndjson')
     const sink = createLocalFileSink({

@@ -112,9 +112,18 @@ const CLIENT_ATTR_BLOCKLIST = new Set([
   'env',
   'environment',
   'env_vars',
+  'api_key',
+  'api-key',
+  'apikey',
   'authorization',
+  'bearer',
   'cookie',
+  'password',
   'set-cookie',
+  'secret',
+  'token',
+  'access_token',
+  'refresh_token',
   'proxy-authorization',
   'headers.authorization'
 ])
@@ -135,7 +144,17 @@ export type RedactorMode = 'client' | 'server'
 
 function shouldDropAttributeKey(key: string, mode: RedactorMode): boolean {
   const k = key.toLowerCase()
+  const normalized = k.replace(/[^a-z0-9]+/g, '')
   if (CLIENT_ATTR_BLOCKLIST.has(k)) {
+    return true
+  }
+  // Structured span attributes often carry secret labels in the key itself
+  // (`ANTHROPIC_API_KEY`, `clientSecret`, `x-api-key`) with plain values that
+  // string redaction cannot classify. Drop by key family before value redaction.
+  if (
+    /\b(api[-_]?key|token|secret|password|bearer|authorization|private[-_]?key)\b/i.test(key) ||
+    /(apikey|token|secret|password|authorization|bearer|privkey|privatekey)/.test(normalized)
+  ) {
     return true
   }
   if (mode === 'server' && SERVER_ATTR_BLOCKLIST_EXTRA.has(k)) {
@@ -193,7 +212,11 @@ export function redactString(input: string): string {
  * cycle does not stack-overflow. Cycles are unusual in span attributes but
  * span-event payloads occasionally get serialized error objects with cycles.
  */
-export function redactValue(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+export function redactValue(
+  value: unknown,
+  mode: RedactorMode = 'client',
+  seen: WeakSet<object> = new WeakSet()
+): unknown {
   if (value === null || value === undefined) {
     return value
   }
@@ -208,7 +231,7 @@ export function redactValue(value: unknown, seen: WeakSet<object> = new WeakSet(
       return '[Circular]'
     }
     seen.add(value)
-    return value.map((entry) => redactValue(entry, seen))
+    return value.map((entry) => redactValue(entry, mode, seen))
   }
   if (value instanceof Date) {
     return value
@@ -220,7 +243,12 @@ export function redactValue(value: unknown, seen: WeakSet<object> = new WeakSet(
     seen.add(value)
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = redactValue(v, seen)
+      // Why: bundle collection re-redacts parsed NDJSON, where secrets can
+      // appear below attributes as nested HTTP headers or identity payloads.
+      if (shouldDropAttributeKey(k, mode)) {
+        continue
+      }
+      out[k] = redactValue(v, mode, seen)
     }
     return out
   }
@@ -242,7 +270,7 @@ export function redactAttributes(
     if (shouldDropAttributeKey(k, mode)) {
       continue
     }
-    out[k] = redactValue(v)
+    out[k] = redactValue(v, mode)
   }
   return out
 }

@@ -13,16 +13,19 @@ import { Separator } from '../ui/separator'
 type PreviewState =
   | { stage: 'idle' }
   | { stage: 'collecting' }
-  | { stage: 'preview'; bundle: DiagnosticsBundlePayload; editedPayload: string }
-  | { stage: 'uploading'; bundle: DiagnosticsBundlePayload; editedPayload: string }
+  | { stage: 'preview'; bundle: DiagnosticsBundlePayload }
+  | { stage: 'uploading'; bundle: DiagnosticsBundlePayload }
   | { stage: 'sent'; ticketId: string; bundleSubmissionId: string }
 
 export function PrivacyDiagnosticsSection(): React.JSX.Element {
   const [status, setStatus] = useState<DiagnosticsStatusPayload | null>(null)
   const [preview, setPreview] = useState<PreviewState>({ stage: 'idle' })
   const [copied, setCopied] = useState(false)
+  const [deletingTicket, setDeletingTicket] = useState(false)
   const refreshTokenRef = useRef(0)
   const copyTimerRef = useRef<number | null>(null)
+  const activeBundleSubmissionIdRef = useRef<string | null>(null)
+  const mountedRef = useRef(true)
 
   const refreshStatus = useCallback(async (): Promise<void> => {
     const token = ++refreshTokenRef.current
@@ -42,11 +45,22 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
 
   useEffect(() => {
     return () => {
+      mountedRef.current = false
       if (copyTimerRef.current !== null) {
         window.clearTimeout(copyTimerRef.current)
       }
+      if (activeBundleSubmissionIdRef.current) {
+        void window.api.diagnostics.discardBundlePreview(activeBundleSubmissionIdRef.current)
+      }
     }
   }, [])
+
+  useEffect(() => {
+    activeBundleSubmissionIdRef.current =
+      preview.stage === 'preview' || preview.stage === 'uploading'
+        ? preview.bundle.bundleSubmissionId
+        : null
+  }, [preview])
 
   const handleOpenFolder = useCallback(async (): Promise<void> => {
     try {
@@ -58,19 +72,27 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
 
   const handleClear = useCallback(async (): Promise<void> => {
     try {
+      if (preview.stage === 'preview' || preview.stage === 'uploading') {
+        await window.api.diagnostics.discardBundlePreview(preview.bundle.bundleSubmissionId)
+        setPreview({ stage: 'idle' })
+      }
       await window.api.diagnostics.clearTraces()
       await refreshStatus()
       toast.success('Local trace files cleared')
     } catch {
       toast.error('Could not clear trace files')
     }
-  }, [refreshStatus])
+  }, [preview, refreshStatus])
 
   const handleStartShare = useCallback(async (): Promise<void> => {
     setPreview({ stage: 'collecting' })
     try {
       const bundle = await window.api.diagnostics.collectBundle()
-      setPreview({ stage: 'preview', bundle, editedPayload: bundle.payload })
+      if (!mountedRef.current) {
+        await window.api.diagnostics.discardBundlePreview(bundle.bundleSubmissionId)
+        return
+      }
+      setPreview({ stage: 'preview', bundle })
     } catch (err) {
       setPreview({ stage: 'idle' })
       toast.error(`Could not collect bundle: ${(err as Error).message}`)
@@ -81,11 +103,10 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
     if (preview.stage !== 'preview') {
       return
     }
-    const { bundle, editedPayload } = preview
-    setPreview({ stage: 'uploading', bundle, editedPayload })
+    const { bundle } = preview
+    setPreview({ stage: 'uploading', bundle })
     try {
       const result: DiagnosticsUploadPayload = await window.api.diagnostics.uploadBundle(
-        editedPayload,
         bundle.bundleSubmissionId
       )
       setPreview({
@@ -94,9 +115,31 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
         bundleSubmissionId: bundle.bundleSubmissionId
       })
     } catch (err) {
-      setPreview({ stage: 'preview', bundle, editedPayload })
+      setPreview({ stage: 'preview', bundle })
       toast.error(`Could not upload bundle: ${(err as Error).message}`)
     }
+  }, [preview])
+
+  const handleOpenPreview = useCallback(async (): Promise<void> => {
+    if (preview.stage !== 'preview' && preview.stage !== 'uploading') {
+      return
+    }
+    try {
+      await window.api.diagnostics.openBundlePreview(preview.bundle.bundleSubmissionId)
+    } catch (err) {
+      toast.error(`Could not open bundle preview: ${(err as Error).message}`)
+    }
+  }, [preview])
+
+  const handleCancelPreview = useCallback(async (): Promise<void> => {
+    if (preview.stage === 'preview' || preview.stage === 'uploading') {
+      try {
+        await window.api.diagnostics.discardBundlePreview(preview.bundle.bundleSubmissionId)
+      } catch {
+        /* best effort */
+      }
+    }
+    setPreview({ stage: 'idle' })
   }, [preview])
 
   const handleCopyTicket = useCallback(async (): Promise<void> => {
@@ -115,6 +158,22 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
       }, 2_000)
     } catch {
       toast.error('Could not copy ticket ID')
+    }
+  }, [preview])
+
+  const handleDeleteBundle = useCallback(async (): Promise<void> => {
+    if (preview.stage !== 'sent') {
+      return
+    }
+    setDeletingTicket(true)
+    try {
+      await window.api.diagnostics.deleteBundle(preview.ticketId)
+      setPreview({ stage: 'idle' })
+      toast.success('Diagnostic bundle deleted')
+    } catch (err) {
+      toast.error(`Could not delete bundle: ${(err as Error).message}`)
+    } finally {
+      setDeletingTicket(false)
     }
   }, [preview])
 
@@ -166,12 +225,8 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
       {preview.stage === 'preview' || preview.stage === 'uploading' ? (
         <BundlePreview
           state={preview}
-          onChange={(text) =>
-            preview.stage === 'preview'
-              ? setPreview({ ...preview, editedPayload: text })
-              : undefined
-          }
-          onCancel={() => setPreview({ stage: 'idle' })}
+          onOpenPreview={() => void handleOpenPreview()}
+          onCancel={() => void handleCancelPreview()}
           onConfirm={() => void handleConfirmUpload()}
         />
       ) : null}
@@ -179,7 +234,9 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
         <TicketReceipt
           ticketId={preview.ticketId}
           copied={copied}
+          deleting={deletingTicket}
           onCopy={() => void handleCopyTicket()}
+          onDelete={() => void handleDeleteBundle()}
           onDismiss={() => setPreview({ stage: 'idle' })}
         />
       ) : null}
@@ -195,7 +252,7 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
         <span
           className={
             status?.otlpEnabled
-              ? 'text-xs text-green-600 dark:text-green-400'
+              ? 'text-xs font-medium text-foreground'
               : 'text-xs text-muted-foreground'
           }
         >
@@ -256,12 +313,12 @@ function Section({
 
 function BundlePreview({
   state,
-  onChange,
+  onOpenPreview,
   onCancel,
   onConfirm
 }: {
   state: Extract<PreviewState, { stage: 'preview' | 'uploading' }>
-  onChange: (text: string) => void
+  onOpenPreview: () => void
   onCancel: () => void
   onConfirm: () => void
 }): React.JSX.Element {
@@ -278,12 +335,22 @@ function BundlePreview({
       <textarea
         id="diagnostics-bundle-preview"
         className="h-72 w-full resize-y rounded border border-border/60 bg-background p-2 font-mono text-[11px] leading-tight"
-        value={state.editedPayload}
-        readOnly={uploading}
-        onChange={(e) => onChange(e.target.value)}
+        value={[
+          'Diagnostic bundle payload is retained in the main process.',
+          `Bundle ID: ${state.bundle.bundleSubmissionId}`,
+          `Spans: ${state.bundle.spanCount}`,
+          `Size: ${Math.round(state.bundle.bytes / 1024)} KB`,
+          '',
+          'Open the preview file to inspect the exact redacted NDJSON before uploading.'
+        ].join('\n')}
+        readOnly
         spellCheck={false}
       />
       <div className="mt-2 flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onOpenPreview} disabled={uploading}>
+          <FileText className="size-3" />
+          Open preview
+        </Button>
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={uploading}>
           Cancel
         </Button>
@@ -298,16 +365,20 @@ function BundlePreview({
 function TicketReceipt({
   ticketId,
   copied,
+  deleting,
   onCopy,
+  onDelete,
   onDismiss
 }: {
   ticketId: string
   copied: boolean
+  deleting: boolean
   onCopy: () => void
+  onDelete: () => void
   onDismiss: () => void
 }): React.JSX.Element {
   return (
-    <div className="rounded border border-green-600/30 bg-green-500/5 p-3">
+    <div className="rounded border border-border/70 bg-muted/20 p-3">
       <div className="text-sm font-medium">Bundle uploaded</div>
       <p className="mt-1 text-xs text-muted-foreground">
         Attach this ticket ID to your GitHub issue or support email so the Orca team can find your
@@ -320,7 +391,11 @@ function TicketReceipt({
           {copied ? 'Copied' : 'Copy'}
         </Button>
       </div>
-      <div className="mt-2 flex justify-end">
+      <div className="mt-2 flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onDelete} disabled={deleting}>
+          <Trash2 className="size-3" />
+          {deleting ? 'Deleting' : 'Delete this bundle'}
+        </Button>
         <Button variant="ghost" size="sm" onClick={onDismiss}>
           Done
         </Button>

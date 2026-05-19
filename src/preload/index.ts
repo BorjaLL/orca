@@ -1177,8 +1177,14 @@ const api = {
     clearTraces: (): Promise<void> => ipcRenderer.invoke('diagnostics:clearTraces'),
     collectBundle: (lookbackMinutes?: number): Promise<unknown> =>
       ipcRenderer.invoke('diagnostics:collectBundle', lookbackMinutes),
-    uploadBundle: (payload: string, bundleSubmissionId: string): Promise<unknown> =>
-      ipcRenderer.invoke('diagnostics:uploadBundle', payload, bundleSubmissionId)
+    openBundlePreview: (bundleSubmissionId: string): Promise<void> =>
+      ipcRenderer.invoke('diagnostics:openBundlePreview', bundleSubmissionId),
+    discardBundlePreview: (bundleSubmissionId: string): Promise<void> =>
+      ipcRenderer.invoke('diagnostics:discardBundlePreview', bundleSubmissionId),
+    uploadBundle: (bundleSubmissionId: string): Promise<unknown> =>
+      ipcRenderer.invoke('diagnostics:uploadBundle', bundleSubmissionId),
+    deleteBundle: (ticketId: string): Promise<void> =>
+      ipcRenderer.invoke('diagnostics:deleteBundle', ticketId)
   },
 
   settings: {

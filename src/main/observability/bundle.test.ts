@@ -1,12 +1,21 @@
+/* oxlint-disable max-lines -- Why: diagnostics bundle fixtures cover collection, preview deletion, upload URL hardening, and byte caps as one contract surface. Splitting would duplicate the temp-file/server harness and make edge-case coverage harder to audit. */
 // Bundle collection tests — focused on the data-shape contracts. The HTTP
 // upload path is exercised by integration tests against a real or mocked
 // server endpoint and is intentionally out of scope here.
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer, type RequestListener, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { collectBundle, generateBundleSubmissionId, validateUploadUrl } from './bundle'
+import {
+  _internalsForTests,
+  collectBundle,
+  deleteBundle,
+  generateBundleSubmissionId,
+  uploadBundle,
+  validateUploadUrl
+} from './bundle'
 
 let dir: string
 let traceFile: string
@@ -162,6 +171,125 @@ describe('bundle — collection', () => {
     expect(bundle.payload).toContain('[redacted:anthropic-key]')
   })
 
+  it('uses server-mode structured redaction for nested auth and identity keys', () => {
+    writeFileSync(
+      traceFile,
+      makeNDJSON([
+        makeSpan({
+          attributes: {
+            install_id: 'posthog-install-id',
+            request: {
+              headers: {
+                authorization: 'Bearer plain-secret',
+                cookie: 'sid=plain-secret',
+                keep: 'ok'
+              }
+            }
+          }
+        })
+      ])
+    )
+    const bundle = collectBundle({
+      traceFilePath: traceFile,
+      maxFiles: 10,
+      appVersion: '1',
+      platform: 'darwin',
+      arch: 'arm64',
+      osRelease: '24',
+      orcaChannel: 'dev'
+    })
+    expect(bundle.payload).not.toContain('posthog-install-id')
+    expect(bundle.payload).not.toContain('plain-secret')
+    expect(bundle.payload).not.toContain('authorization')
+    expect(bundle.payload).not.toContain('cookie')
+    expect(bundle.payload).toContain('"keep":"ok"')
+  })
+
+  it('does not append a span that would push the payload over the upload cap', () => {
+    const giantSpan = makeSpan({
+      attributes: {
+        message: 'x'.repeat(_internalsForTests.MAX_BUNDLE_BYTES)
+      }
+    })
+    writeFileSync(traceFile, makeNDJSON([giantSpan]))
+    const bundle = collectBundle({
+      traceFilePath: traceFile,
+      maxFiles: 10,
+      appVersion: '1',
+      platform: 'darwin',
+      arch: 'arm64',
+      osRelease: '24',
+      orcaChannel: 'dev'
+    })
+    expect(bundle.bytes).toBeLessThanOrEqual(_internalsForTests.MAX_BUNDLE_BYTES)
+    expect(bundle.spanCount).toBe(0)
+  })
+
+  it('keeps the newest spans when the bundle size cap truncates a file', () => {
+    const oldSpan = makeSpan({
+      name: 'oldest',
+      attributes: { message: 'x'.repeat(_internalsForTests.MAX_BUNDLE_BYTES) }
+    })
+    const newSpan = makeSpan({ name: 'newest', attributes: { message: 'recent crash' } })
+    writeFileSync(traceFile, makeNDJSON([oldSpan, newSpan]))
+    const bundle = collectBundle({
+      traceFilePath: traceFile,
+      maxFiles: 10,
+      appVersion: '1',
+      platform: 'darwin',
+      arch: 'arm64',
+      osRelease: '24',
+      orcaChannel: 'dev'
+    })
+    expect(bundle.payload).toContain('"name":"newest"')
+    expect(bundle.payload).not.toContain('"name":"oldest"')
+  })
+
+  it('skips individually oversized recent spans and keeps smaller recent context', () => {
+    const tooLargeSpan = makeSpan({
+      name: 'oversized',
+      attributes: { message: 'x'.repeat(_internalsForTests.MAX_BUNDLE_BYTES) }
+    })
+    const usefulSpan = makeSpan({
+      name: 'useful',
+      attributes: { message: 'still useful' }
+    })
+    writeFileSync(traceFile, makeNDJSON([usefulSpan, tooLargeSpan]))
+    const bundle = collectBundle({
+      traceFilePath: traceFile,
+      maxFiles: 10,
+      appVersion: '1',
+      platform: 'darwin',
+      arch: 'arm64',
+      osRelease: '24',
+      orcaChannel: 'dev'
+    })
+    expect(bundle.payload).toContain('"name":"useful"')
+    expect(bundle.payload).not.toContain('"name":"oversized"')
+  })
+
+  it('skips oversized middle spans after accepting newer context', () => {
+    const olderUseful = makeSpan({ name: 'older-useful', attributes: { message: 'older context' } })
+    const oversizedMiddle = makeSpan({
+      name: 'oversized-middle',
+      attributes: { message: 'x'.repeat(_internalsForTests.MAX_BUNDLE_BYTES) }
+    })
+    const newestUseful = makeSpan({ name: 'newest-useful', attributes: { message: 'new context' } })
+    writeFileSync(traceFile, makeNDJSON([olderUseful, oversizedMiddle, newestUseful]))
+    const bundle = collectBundle({
+      traceFilePath: traceFile,
+      maxFiles: 10,
+      appVersion: '1',
+      platform: 'darwin',
+      arch: 'arm64',
+      osRelease: '24',
+      orcaChannel: 'dev'
+    })
+    expect(bundle.payload).toContain('"name":"newest-useful"')
+    expect(bundle.payload).toContain('"name":"older-useful"')
+    expect(bundle.payload).not.toContain('"name":"oversized-middle"')
+  })
+
   it('skips malformed (non-JSON) lines without throwing', () => {
     writeFileSync(traceFile, [JSON.stringify(makeSpan()), 'not json', ''].join('\n'))
     expect(() =>
@@ -213,5 +341,121 @@ describe('validateUploadUrl', () => {
     expect(() => validateUploadUrl('file:///tmp/upload', 'https://api.example.com/token')).toThrow(
       /must use https/
     )
+  })
+})
+
+describe('uploadBundle and deleteBundle', () => {
+  let server: Server | null = null
+
+  afterEach(
+    () =>
+      new Promise<void>((resolve) => {
+        if (!server) {
+          resolve()
+          return
+        }
+        server.close(() => {
+          server = null
+          resolve()
+        })
+      })
+  )
+
+  function listen(handler: RequestListener): Promise<string> {
+    server = createServer(handler)
+    return new Promise((resolve) => {
+      server?.listen(0, '127.0.0.1', () => {
+        const address = server?.address()
+        if (address && typeof address === 'object') {
+          resolve(`http://127.0.0.1:${address.port}`)
+        }
+      })
+    })
+  }
+
+  it('does not include token endpoint response bodies in thrown errors', async () => {
+    const secretBody = 'internal token service detail: sk-ant-api03-secret'
+    const baseUrl = await listen((_req, res) => {
+      res.statusCode = 500
+      res.end(secretBody)
+    })
+    await expect(
+      uploadBundle({
+        tokenEndpoint: `${baseUrl}/token`,
+        payload: '{}\n',
+        bundleSubmissionId: generateBundleSubmissionId()
+      })
+    ).rejects.toThrow(/^HTTP 500$/)
+  })
+
+  it('does not include upload endpoint response bodies in thrown errors', async () => {
+    const secretBody = 'internal upload detail: ghp_secret'
+    const baseUrl = await listen((req, res) => {
+      if (req.url === '/token') {
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({
+            token: 'test-token',
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+            upload_url: `${baseUrl}/upload`,
+            max_bytes: _internalsForTests.MAX_BUNDLE_BYTES
+          })
+        )
+        return
+      }
+      res.statusCode = 500
+      res.end(secretBody)
+    })
+    await expect(
+      uploadBundle({
+        tokenEndpoint: `${baseUrl}/token`,
+        payload: '{}\n',
+        bundleSubmissionId: generateBundleSubmissionId()
+      })
+    ).rejects.toThrow(/^HTTP 500$/)
+  })
+
+  it('does not include malformed upload_url values in thrown errors', async () => {
+    const secretUrl = 'not a url with sk-ant-api03-secret'
+    const baseUrl = await listen((_req, res) => {
+      res.setHeader('content-type', 'application/json')
+      res.end(
+        JSON.stringify({
+          token: 'test-token',
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+          upload_url: secretUrl,
+          max_bytes: _internalsForTests.MAX_BUNDLE_BYTES
+        })
+      )
+    })
+    await expect(
+      uploadBundle({
+        tokenEndpoint: `${baseUrl}/token`,
+        payload: '{}\n',
+        bundleSubmissionId: generateBundleSubmissionId()
+      })
+    ).rejects.toThrow(/^invalid upload_url from token endpoint$/)
+  })
+
+  it('does not include transport error details in thrown errors', async () => {
+    await expect(
+      uploadBundle({
+        tokenEndpoint: 'http://diagnostics-secret.example.invalid/diagnostics/token',
+        payload: '{}\n',
+        bundleSubmissionId: generateBundleSubmissionId()
+      })
+    ).rejects.toThrow(/^diagnostic network request failed$/)
+  })
+
+  it('posts deletion requests to the diagnostics delete endpoint for a ticket', async () => {
+    const ticketId = generateBundleSubmissionId()
+    const seen: string[] = []
+    const baseUrl = await listen((req, res) => {
+      seen.push(req.url ?? '')
+      res.setHeader('content-type', 'application/json')
+      res.end('{}')
+    })
+    await deleteBundle({ tokenEndpoint: `${baseUrl}/diagnostics/token`, ticketId })
+    expect(seen).toEqual([`/diagnostics/delete/${ticketId}`])
   })
 })

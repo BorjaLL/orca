@@ -40,9 +40,11 @@ import {
 } from './local-file-sink'
 import {
   collectBundle as _collectBundle,
+  deleteBundle as _deleteBundle,
   uploadBundle as _uploadBundle,
   type CollectBundleOptions,
   type CollectedBundle,
+  type DeleteBundleOptions,
   type UploadBundleOptions,
   type UploadBundleResult
 } from './bundle'
@@ -361,10 +363,14 @@ export function collectDiagnosticBundle(
   })
 }
 
-/** Upload a (possibly-edited) bundle payload. Returns the ticket ID on
- *  success; throws on any of the failure modes documented in `bundle.ts`. */
+/** Upload a collected bundle payload. Returns the ticket ID on success;
+ *  throws on any of the failure modes documented in `bundle.ts`. */
 export async function uploadDiagnosticBundle(
   opts: UploadBundleOptions
 ): Promise<UploadBundleResult> {
   return _uploadBundle(opts)
+}
+
+export async function deleteDiagnosticBundle(opts: DeleteBundleOptions): Promise<void> {
+  return _deleteBundle(opts)
 }

@@ -10,23 +10,23 @@
 //      payload (belt-and-suspenders), embed the per-bundle
 //      `bundle_submission_id`. NEVER carries `install_id` (Issue 8 in the
 //      security review).
-//   2. (renderer) — preview the bundle as plain text in an editable window.
-//      User can edit, copy, or cancel. Out of this module's scope; the IPC
-//      surface in `ipc/diagnostics.ts` exposes `previewBundle`/`uploadBundle`.
+//   2. (renderer) — preview the bundle as plain text. User can copy or cancel.
+//      Main retains the uploadable payload so renderer cannot substitute
+//      arbitrary bytes after preview.
 //   3. `uploadBundle()` — two-step:
 //      a) POST `/diagnostics/token` → token + upload_url
 //      b) POST `<upload_url>` with `Authorization: Bearer <token>` and the
-//         (possibly user-edited) NDJSON payload. Returns ticket ID.
+//         collected NDJSON payload. Returns ticket ID.
 //   4. (renderer) — surface the ticket ID; offer "Copy ticket" and
-//      "Delete this bundle" controls.
+//      "Delete this bundle" controls. Delete posts only the ticket ID.
 //
 // Server-side endpoint contract is fully specified in
 // telemetry-error-tracking.md §Endpoint contract. Implementation of those
 // endpoints (token issuance, rate limit, storage, server-side redaction,
 // retention, deletion) is operational TBD — flagged as an open question to
 // the human dispatching this task. We ship the *client* of that contract
-// with all hardening invariants the client controls (single retry, content-
-// type pinning, body-size cap on upload, token-handling discipline).
+// with all hardening invariants the client controls (content-type pinning,
+// body-size cap on upload, token-handling discipline).
 
 import { randomBytes } from 'node:crypto'
 import { readFileSync, statSync } from 'node:fs'
@@ -34,7 +34,7 @@ import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { URL } from 'node:url'
 import { listRotatedFiles } from './local-file-sink'
-import { redactString } from './redactor'
+import { redactValue } from './redactor'
 
 const DEFAULT_LOOKBACK_MINUTES = 30
 const MAX_BUNDLE_BYTES = 10 * 1024 * 1024 // 10 MB — matches §Endpoint contract item 3
@@ -77,10 +77,10 @@ type BundleHeader = {
 
 /**
  * Read the last N minutes of NDJSON across the rotated family and produce
- * a redacted bundle payload. Caller renders this as the preview text;
- * `uploadBundle()` ships whatever bytes the user confirms (which may be
- * the original or an edited form — we trust the user's edits, the server-
- * side redactor is the final guarantee).
+ * a redacted bundle payload. Caller renders this as preview text; main keeps
+ * the uploadable payload and `uploadBundle()` ships only those collected
+ * bytes. This keeps compromised renderer code from substituting arbitrary
+ * upload content after preview.
  */
 export function collectBundle(opts: CollectBundleOptions): CollectedBundle {
   const lookbackMs = (opts.lookbackMinutes ?? DEFAULT_LOOKBACK_MINUTES) * 60 * 1000
@@ -100,12 +100,12 @@ export function collectBundle(opts: CollectBundleOptions): CollectedBundle {
   const headerLine = JSON.stringify({ type: 'bundle-header', ...header })
   const lines: string[] = [headerLine]
   let spanCount = 0
-  // Running byte counter for the eventual `lines.join('\n')` payload.
-  // Starts with the header's byte length; each pushed line adds its own
-  // length plus 1 for the newline separator that will join it. Avoids
-  // re-running `lines.join('\n').length` every iteration — that's O(N²)
-  // in span count and dominates collection time for large backlogs (F5).
-  let currentBytes = Buffer.byteLength(headerLine)
+  // Running byte counter for the eventual payload. Starts with the header
+  // plus its final newline; each pushed span adds its line plus newline.
+  // Avoids re-running `lines.join('\n').length` every iteration — that's
+  // O(N²) in span count and dominates collection time for large backlogs.
+  let currentBytes = Buffer.byteLength(`${headerLine}\n`)
+  const maxRecordBytes = MAX_BUNDLE_BYTES - currentBytes
 
   // Files from listRotatedFiles are newest → oldest. Reading newest first
   // means the cutoff filter naturally bounds our work — once we hit a span
@@ -129,12 +129,10 @@ export function collectBundle(opts: CollectBundleOptions): CollectedBundle {
       continue
     }
 
-    // NDJSON parsing — one record per line. Skip malformed lines silently;
-    // a partial-write at process crash time can leave a half-line.
-    for (const raw of text.split('\n')) {
-      if (raw.length === 0) {
-        continue
-      }
+    // NDJSON parsing — one record per line. Process each file newest-first
+    // so the size cap preserves the spans closest to the support action.
+    // Skip malformed lines silently; a crash can leave a half-line.
+    for (const raw of text.split('\n').filter(Boolean).reverse()) {
       let parsed: unknown
       try {
         parsed = JSON.parse(raw)
@@ -156,24 +154,24 @@ export function collectBundle(opts: CollectBundleOptions): CollectedBundle {
         }
       }
 
-      // Run the redactor a SECOND TIME over the serialized bytes. This is the
-      // §Endpoint contract belt-and-suspenders. The sink-write pass already
-      // redacted; this catches anything that slipped through (a future bug
-      // in the sink path) before the user's eyes hit the preview window.
-      const redacted = redactString(raw)
-      lines.push(redacted)
-      spanCount += 1
-      // +1 accounts for the '\n' that `lines.join('\n')` will insert before
-      // this line in the final payload.
-      currentBytes += Buffer.byteLength(redacted) + 1
-      if (currentBytes > MAX_BUNDLE_BYTES) {
+      // Run the redactor a SECOND TIME over the parsed shape, in server mode.
+      // This catches nested auth-bearing fields and strips product-telemetry
+      // identity keys before the user's eyes hit the preview window.
+      const redacted = JSON.stringify(redactValue(parsed, 'server'))
+      const redactedBytes = Buffer.byteLength(redacted) + 1
+      if (redactedBytes > maxRecordBytes) {
+        // One pathological record should not suppress every smaller recent
+        // span behind it. Skip records that cannot fit in an empty payload.
+        continue
+      }
+      if (currentBytes + redactedBytes > MAX_BUNDLE_BYTES) {
         // Hard ceiling at the same 10 MB the upload endpoint enforces (F4).
-        // Previously we collected up to 20 MB so the user could preview a
-        // bundle the server would reject — confusing UX. Now the preview
-        // matches what'll actually ship; the trailing '\n' added at payload
-        // assembly is a single byte of slack absorbed by the cap.
+        // Check before appending so the preview can be uploaded as-is.
         break outer
       }
+      lines.push(redacted)
+      spanCount += 1
+      currentBytes += redactedBytes
     }
   }
 
@@ -192,12 +190,17 @@ export type UploadBundleOptions = {
   /** Server endpoint that issues short-lived tokens. From a build-time
    *  constant or a user-set env var (developer mode). */
   readonly tokenEndpoint: string
-  /** Already-collected payload bytes the user confirmed in the preview. */
+  /** Already-collected payload bytes retained by main after preview. */
   readonly payload: string
   readonly bundleSubmissionId: string
 }
 
 export type UploadBundleResult = {
+  readonly ticketId: string
+}
+
+export type DeleteBundleOptions = {
+  readonly tokenEndpoint: string
   readonly ticketId: string
 }
 
@@ -273,6 +276,11 @@ export async function uploadBundle(opts: UploadBundleOptions): Promise<UploadBun
   return { ticketId: uploadRes.ticket_id }
 }
 
+export async function deleteBundle(opts: DeleteBundleOptions): Promise<void> {
+  const endpoint = resolveDeleteEndpoint(opts.tokenEndpoint, opts.ticketId)
+  await postJsonForJson(endpoint, {}, TOKEN_REQUEST_TIMEOUT_MS)
+}
+
 // ── Bundle submission ID ─────────────────────────────────────────────────
 
 /**
@@ -319,22 +327,20 @@ export function validateUploadUrl(uploadUrl: string, tokenEndpoint: string): voi
   try {
     parsedUpload = new URL(uploadUrl)
   } catch {
-    throw new Error(`invalid upload_url from token endpoint: ${uploadUrl}`)
+    throw new Error('invalid upload_url from token endpoint')
   }
   let parsedToken: URL
   try {
     parsedToken = new URL(tokenEndpoint)
   } catch {
-    throw new Error(`invalid tokenEndpoint configuration: ${tokenEndpoint}`)
+    throw new Error('invalid tokenEndpoint configuration')
   }
   const tokenIsHttps = parsedToken.protocol === 'https:'
   if (tokenIsHttps && parsedUpload.protocol !== 'https:') {
-    throw new Error(
-      `upload_url must use https when tokenEndpoint is https (got ${parsedUpload.protocol}//${parsedUpload.host})`
-    )
+    throw new Error('upload_url must use https when tokenEndpoint is https')
   }
   if (parsedUpload.protocol !== 'https:' && parsedUpload.protocol !== 'http:') {
-    throw new Error(`upload_url must use http(s) (got ${parsedUpload.protocol})`)
+    throw new Error('upload_url must use http(s)')
   }
   // Same-origin host pin. Defends against a compromised token endpoint that
   // returns a valid-https upload_url pointing at an attacker-controlled host
@@ -342,10 +348,21 @@ export function validateUploadUrl(uploadUrl: string, tokenEndpoint: string): voi
   // ship the bearer token + user payload to the host the user already
   // trusted by virtue of the configured tokenEndpoint.
   if (parsedUpload.host !== parsedToken.host) {
-    throw new Error(
-      `upload_url host (${parsedUpload.host}) must match tokenEndpoint host (${parsedToken.host})`
-    )
+    throw new Error('upload_url host must match tokenEndpoint host')
   }
+}
+
+function resolveDeleteEndpoint(tokenEndpoint: string, ticketId: string): string {
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(ticketId)) {
+    throw new Error('ticketId has invalid format')
+  }
+  let parsedToken: URL
+  try {
+    parsedToken = new URL(tokenEndpoint)
+  } catch {
+    throw new Error('invalid tokenEndpoint configuration')
+  }
+  return new URL(`/diagnostics/delete/${encodeURIComponent(ticketId)}`, parsedToken).toString()
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
@@ -412,14 +429,20 @@ function postRaw(
               reject(new Error(`malformed JSON response (HTTP ${status})`))
             }
           } else {
-            reject(new Error(`HTTP ${status}: ${text.slice(0, 200)}`))
+            // Why: this error can cross IPC into renderer toasts. Never
+            // include backend response bodies; they may contain infra detail.
+            reject(new Error(`HTTP ${status}`))
           }
         })
       }
     )
-    req.on('error', reject)
+    req.on('error', () => {
+      // Why: request errors can include endpoint hostnames. The diagnostics
+      // endpoint contract keeps infrastructure details out of renderer IPC.
+      reject(new Error('diagnostic network request failed'))
+    })
     req.on('timeout', () => {
-      req.destroy(new Error('upload timeout'))
+      req.destroy(new Error('diagnostic network request timed out'))
     })
     req.write(body)
     req.end()

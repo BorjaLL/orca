@@ -133,32 +133,41 @@ export function createLocalFileSink(opts: LocalFileSinkOptions): LocalFileSink {
     if (buffer.length === 0 || closed) {
       return
     }
-    const chunk = buffer.join('')
+    const lines = buffer
     buffer = []
-    // Rotation point: if writing this chunk would exceed the cap and we
-    // already have something in the file, rotate first. Empty-file rotations
-    // are skipped (would just produce zero-byte `.N` files on a new install).
-    if (currentBytes > 0 && currentBytes + chunk.length > maxBytes) {
-      rotate()
-    }
-    try {
-      writeSync(fd, chunk)
-      currentBytes += chunk.length
-    } catch {
-      // Reopen and re-buffer once. If the second write also fails, drop the
-      // chunk on the floor — the error-tracking lane must never crash main.
+    for (const line of lines) {
+      const lineBytes = Buffer.byteLength(line, 'utf8')
+      if (lineBytes > maxBytes) {
+        // A single pathological span should not violate the documented
+        // maxFiles × maxBytes disk envelope. Drop only that record, not the
+        // rest of the buffered batch.
+        continue
+      }
+      // Rotation point: if writing this line would exceed the cap and we
+      // already have something in the file, rotate first. Empty-file rotations
+      // are skipped (would just produce zero-byte `.N` files on a new install).
+      if (currentBytes > 0 && currentBytes + lineBytes > maxBytes) {
+        rotate()
+      }
       try {
-        // Best-effort close of the prior fd to prevent fd-leak on transient errors.
-        try {
-          closeSync(fd)
-        } catch {
-          /* swallow — best effort */
-        }
-        fd = openAppend(filePath)
-        writeSync(fd, chunk)
-        currentBytes = safeFstatSize(fd)
+        writeSync(fd, line)
+        currentBytes += lineBytes
       } catch {
-        /* swallow — telemetry must never crash main */
+        // Reopen and retry once. If the second write also fails, drop this
+        // line — the error-tracking lane must never crash main.
+        try {
+          // Best-effort close of the prior fd to prevent fd-leak on transient errors.
+          try {
+            closeSync(fd)
+          } catch {
+            /* swallow — best effort */
+          }
+          fd = openAppend(filePath)
+          writeSync(fd, line)
+          currentBytes = safeFstatSize(fd)
+        } catch {
+          /* swallow — telemetry must never crash main */
+        }
       }
     }
   }
