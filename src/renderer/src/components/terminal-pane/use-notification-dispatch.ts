@@ -168,6 +168,7 @@ export function dispatchTerminalNotification(
     .dispatch({
       source: event.source,
       worktreeId,
+      paneKey: event.paneKey,
       repoLabel: repo?.displayName,
       worktreeLabel: worktree?.displayName || worktree?.branch || worktreeId,
       hasMultipleActiveRepos: countReposNeedingNotificationDisambiguation(state) > 1,

@@ -45,6 +45,7 @@ import {
 import { isGitRepoKind } from '../../../shared/repo-kind'
 import { TOGGLE_FLOATING_TERMINAL_EVENT } from '@/lib/floating-terminal'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
+import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
 import { focusRuntimeTerminalSurface } from '@/runtime/sync-runtime-graph'
 import { setFitOverride, hydrateOverrides } from '@/lib/pane-manager/mobile-fit-overrides'
 import { setDriverForPty, hydrateDrivers } from '@/lib/pane-manager/mobile-driver-state'
@@ -977,19 +978,28 @@ export function useIpcEvents(): void {
     )
 
     unsubs.push(
-      window.api.ui.onFocusTerminal(({ tabId, worktreeId, leafId }) => {
-        const store = useAppStore.getState()
-        store.setActiveWorktree(worktreeId)
-        // Why: CLI-driven focus is a user-initiated switch; stamp focus
-        // recency for Cmd+J. See docs/cmd-j-empty-query-ordering.md.
-        store.markWorktreeVisited(worktreeId)
-        store.setActiveView('terminal')
-        store.setActiveTab(tabId)
-        store.revealWorktreeInSidebar(worktreeId)
-        if (!focusRuntimeTerminalSurface(tabId, leafId)) {
-          focusTerminalTabSurface(tabId, leafId)
+      window.api.ui.onFocusTerminal(
+        ({ tabId, worktreeId, leafId, ackPaneKeyOnSuccess, flashFocusedPane }) => {
+          const store = useAppStore.getState()
+          store.setActiveWorktree(worktreeId)
+          // Why: CLI-driven focus is a user-initiated switch; stamp focus
+          // recency for Cmd+J. See docs/cmd-j-empty-query-ordering.md.
+          store.markWorktreeVisited(worktreeId)
+          store.setActiveView('terminal')
+          store.setActiveTab(tabId)
+          store.revealWorktreeInSidebar(worktreeId)
+          if (ackPaneKeyOnSuccess || flashFocusedPane) {
+            activateTabAndFocusPane(tabId, leafId ?? null, {
+              ...(ackPaneKeyOnSuccess ? { ackPaneKeyOnSuccess } : {}),
+              ...(flashFocusedPane ? { flashFocusedPane: true } : {})
+            })
+            return
+          }
+          if (!focusRuntimeTerminalSurface(tabId, leafId)) {
+            focusTerminalTabSurface(tabId, leafId)
+          }
         }
-      })
+      )
     )
 
     unsubs.push(

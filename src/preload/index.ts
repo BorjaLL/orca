@@ -2427,11 +2427,23 @@ const api = {
       return () => ipcRenderer.removeListener('ui:renameTerminal', listener)
     },
     onFocusTerminal: (
-      callback: (data: { tabId: string; worktreeId: string; leafId?: string | null }) => void
+      callback: (data: {
+        tabId: string
+        worktreeId: string
+        leafId?: string | null
+        ackPaneKeyOnSuccess?: string
+        flashFocusedPane?: boolean
+      }) => void
     ): (() => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        data: { tabId: string; worktreeId: string; leafId?: string | null }
+        data: {
+          tabId: string
+          worktreeId: string
+          leafId?: string | null
+          ackPaneKeyOnSuccess?: string
+          flashFocusedPane?: boolean
+        }
       ) => callback(data)
       ipcRenderer.on('ui:focusTerminal', listener)
       return () => ipcRenderer.removeListener('ui:focusTerminal', listener)

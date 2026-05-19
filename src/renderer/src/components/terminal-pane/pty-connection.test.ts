@@ -1292,7 +1292,12 @@ describe('connectPanePty', () => {
     expect(deps.markTerminalTabUnread).toHaveBeenCalledWith('tab-1')
     expect(deps.dispatchNotification).not.toHaveBeenCalled()
     vi.advanceTimersByTime(250)
-    expect(deps.dispatchNotification).toHaveBeenCalledWith({ source: 'terminal-bell' })
+    expect(deps.dispatchNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'terminal-bell',
+        paneKey: makePaneKey('tab-1', LEAF_1)
+      })
+    )
   })
 
   it('lets concurrent agent-complete notifications win over terminal bell notifications', async () => {
@@ -1382,7 +1387,9 @@ describe('connectPanePty', () => {
     idleHandler('* Codex done')
     vi.advanceTimersByTime(250)
 
-    expect(deps.dispatchNotification).toHaveBeenCalledWith({ source: 'terminal-bell' })
+    expect(deps.dispatchNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'terminal-bell' })
+    )
     vi.advanceTimersByTime(1000)
     expect(deps.dispatchNotification).not.toHaveBeenCalledWith(
       expect.objectContaining({ source: 'agent-task-complete' })
@@ -1629,7 +1636,9 @@ describe('connectPanePty', () => {
     bellHandler()
     idleHandler('* Codex done')
     vi.advanceTimersByTime(250)
-    expect(deps.dispatchNotification).not.toHaveBeenCalledWith({ source: 'terminal-bell' })
+    expect(deps.dispatchNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'terminal-bell' })
+    )
 
     mockStoreState.settings = {
       ...mockStoreState.settings,
@@ -1641,7 +1650,9 @@ describe('connectPanePty', () => {
     notifyStoreSubscribers()
     vi.advanceTimersByTime(250)
 
-    expect(deps.dispatchNotification).toHaveBeenCalledWith({ source: 'terminal-bell' })
+    expect(deps.dispatchNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'terminal-bell' })
+    )
   })
 
   it('requires fresh working evidence after notifications are disabled', async () => {
@@ -1891,7 +1902,9 @@ describe('connectPanePty', () => {
     workingHandler()
     vi.advanceTimersByTime(250)
 
-    expect(deps.dispatchNotification).toHaveBeenCalledWith({ source: 'terminal-bell' })
+    expect(deps.dispatchNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'terminal-bell' })
+    )
     expect(deps.dispatchNotification).not.toHaveBeenCalledWith(
       expect.objectContaining({ source: 'agent-task-complete' })
     )

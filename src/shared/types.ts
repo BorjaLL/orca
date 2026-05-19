@@ -1748,6 +1748,8 @@ export type NotificationEventSource = 'agent-task-complete' | 'terminal-bell' | 
 export type NotificationDispatchRequest = {
   source: NotificationEventSource
   worktreeId?: string
+  /** Stable `${tabId}:${leafId}` terminal pane key for click-to-focus routing. */
+  paneKey?: string
   repoLabel?: string
   worktreeLabel?: string
   hasMultipleActiveRepos?: boolean

@@ -359,7 +359,7 @@ export function connectPanePty(
         return
       }
       pendingTerminalBellNotification = false
-      deps.dispatchNotification({ source: 'terminal-bell' })
+      deps.dispatchNotification({ source: 'terminal-bell', paneKey: cacheKey })
     }, AGENT_TASK_COMPLETE_NOTIFICATION_GRACE_MS)
   }
 
