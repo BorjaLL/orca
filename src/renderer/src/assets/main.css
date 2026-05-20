@@ -800,32 +800,6 @@
   animation: settings-shell-enter 180ms ease-out;
 }
 
-/* Why: after clicking a sidebar item we center the target section and briefly
-   pulse its border so the user can see exactly which section their click
-   landed on — the scroll destination alone is subtle when the section is
-   already partially visible. */
-@keyframes settings-section-flash {
-  0% {
-    border-color: var(--ring);
-    background: color-mix(in srgb, var(--ring) 8%, transparent);
-    box-shadow: inset 3px 0 0 var(--ring);
-  }
-  60% {
-    border-color: var(--ring);
-    background: color-mix(in srgb, var(--ring) 5%, transparent);
-    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ring) 70%, transparent);
-  }
-  100% {
-    border-color: var(--border);
-    background: transparent;
-    box-shadow: inset 0 0 0 transparent;
-  }
-}
-
-.settings-section-flash {
-  animation: settings-section-flash 900ms ease-out;
-}
-
 .sidebar.collapsed {
   width: 0;
   border-right: none;
