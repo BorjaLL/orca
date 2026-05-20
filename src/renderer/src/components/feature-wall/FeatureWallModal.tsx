@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { JSX, KeyboardEvent } from 'react'
-import { ChevronRight, ExternalLink } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import {
   DEFAULT_FEATURE_WALL_WORKFLOW_ID,
   FEATURE_WALL_WORKFLOWS,
@@ -12,6 +12,7 @@ import {
 } from '../../../../shared/feature-wall-workflows'
 import type { FeatureWallOpenSourceTelemetry } from '../../../../shared/telemetry-events'
 import { FEATURE_WALL_MAX_DWELL_MS } from '../../../../shared/feature-wall-telemetry'
+import { getAgentsSteps, type AgentsStepId } from '../../../../shared/agents-orchestration-steps'
 import {
   Dialog,
   DialogContent,
@@ -28,8 +29,10 @@ import {
   type FeatureWallRailNavigationKey
 } from './feature-wall-rail-navigation'
 import { toFeatureWallAssetUrl, useFeatureWallAssetBaseUrl } from './feature-wall-assets'
-import { PreviewMedia, RelatedFeatures } from './FeatureWallPreview'
 import { useFeatureWallTaskSourcePresentation } from './use-feature-wall-task-source-presentation'
+import { FeatureWallBody } from './FeatureWallBody'
+import { AgentsStepper } from './AgentsStepper'
+import { FeatureWallRail } from './FeatureWallRail'
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 const NAVIGATION_KEYS = new Set<string>(['ArrowUp', 'ArrowDown', 'Home', 'End'])
@@ -127,6 +130,31 @@ export default function FeatureWallModal(): JSX.Element | null {
   )
   const selected = FEATURE_WALL_WORKFLOWS[selectedIndex]
   const selectedPresentation = useFeatureWallTaskSourcePresentation(isOpen, selected)
+  const settings = useAppStore((s) => s.settings)
+  // Why: hide the notifications step when the user already has agent-task
+  // notifications enabled — mirrors the toggle in the mock so users who
+  // already configured this don't see a redundant pitch.
+  const notificationsAlreadyEnabled =
+    settings?.notifications.enabled === true && settings?.notifications.agentTaskComplete === true
+  const agentsSteps = useMemo(
+    () => getAgentsSteps(notificationsAlreadyEnabled),
+    [notificationsAlreadyEnabled]
+  )
+  const [agentsStepId, setAgentsStepId] = useState<AgentsStepId>(
+    () => agentsSteps[0]?.id ?? 'statuses'
+  )
+  // Reset to the first step whenever the visible step list changes so we never
+  // land on an id that's been filtered out (e.g. user toggled notifications on
+  // mid-tour).
+  useEffect(() => {
+    if (!agentsSteps.some((s) => s.id === agentsStepId)) {
+      setAgentsStepId(agentsSteps[0]?.id ?? 'statuses')
+    }
+  }, [agentsSteps, agentsStepId])
+  const agentsActiveStep =
+    selected.id === 'agents-orchestration'
+      ? (agentsSteps.find((s) => s.id === agentsStepId) ?? agentsSteps[0] ?? null)
+      : null
   const primaryTile = getFeatureWallMediaTile(selected.primaryTileId)
   const posterUrl = primaryTile ? toFeatureWallAssetUrl(assetBaseUrl, primaryTile.posterPath) : null
   const gifUrl = primaryTile ? toFeatureWallAssetUrl(assetBaseUrl, primaryTile.gifPath) : null
@@ -175,8 +203,17 @@ export default function FeatureWallModal(): JSX.Element | null {
   useEffect(() => {
     if (!isOpen) {
       setSelectedId(DEFAULT_FEATURE_WALL_WORKFLOW_ID)
+      setAgentsStepId(agentsSteps[0]?.id ?? 'statuses')
     }
-  }, [isOpen])
+  }, [agentsSteps, isOpen])
+
+  // Reset to the first step whenever the agents-orchestration workflow gets
+  // selected, so the user always lands on Statuses first.
+  useEffect(() => {
+    if (selected.id === 'agents-orchestration') {
+      setAgentsStepId(agentsSteps[0]?.id ?? 'statuses')
+    }
+  }, [agentsSteps, selected.id])
 
   const handleSelect = useCallback(
     (workflow: FeatureWallWorkflow): void => {
@@ -234,19 +271,6 @@ export default function FeatureWallModal(): JSX.Element | null {
     }
   }
 
-  const handleSecondaryDocs = (): void => {
-    if (!primaryTile) {
-      return
-    }
-    track('feature_wall_docs_clicked', {
-      group_id: selected.id,
-      tile_id: primaryTile.id,
-      source
-    })
-    track('feature_wall_tile_clicked', { tile_id: primaryTile.id })
-    void window.api.shell.openUrl(selected.docsUrl)
-  }
-
   const handleOpenChange = (open: boolean): void => {
     if (!open) {
       closeModal()
@@ -264,67 +288,33 @@ export default function FeatureWallModal(): JSX.Element | null {
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="grid h-[min(660px,calc(100vh-2rem))] w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-0 p-0 sm:max-w-[1040px]"
+        className={cn(
+          'grid h-[min(780px,calc(100vh-8rem))] w-[calc(100vw-8rem)] gap-0 p-0 sm:max-w-[1240px]',
+          agentsActiveStep
+            ? 'grid-rows-[auto_minmax(0,1fr)_auto_auto]'
+            : 'grid-rows-[auto_minmax(0,1fr)_auto]'
+        )}
         tabIndex={-1}
       >
-        <DialogHeader className="gap-1 border-b border-border px-6 py-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-            Feature tour
+        <DialogHeader className="gap-1 border-b border-border px-7 py-4">
+          <div className="text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+            Explore Orca
           </div>
-          <DialogTitle className="text-base">Get to know Orca</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-lg">Get to know Orca</DialogTitle>
+          <DialogDescription className="text-base">
             A short, workflow-by-workflow tour. Pick a path — each one ends with something you can
             try in Orca right now.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1 lg:grid-cols-[260px_minmax(0,1fr)]">
-          <nav
-            className="scrollbar-sleek max-h-44 overflow-y-auto border-b border-border bg-card p-2 md:max-h-none md:border-b-0 md:border-r"
-            aria-label="Workflows"
-          >
-            <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-              Workflows
-            </div>
-            <div role="tablist" aria-orientation="vertical" className="flex flex-col gap-0.5">
-              {FEATURE_WALL_WORKFLOWS.map((workflow, index) => {
-                const isSelected = workflow.id === selectedId
-                return (
-                  <div key={workflow.id}>
-                    <button
-                      ref={(node) => {
-                        railRefs.current[index] = node
-                      }}
-                      type="button"
-                      role="tab"
-                      aria-selected={isSelected}
-                      aria-controls={previewPanelId}
-                      tabIndex={isSelected ? 0 : -1}
-                      data-feature-wall-workflow-id={workflow.id}
-                      onClick={() => handleSelect(workflow)}
-                      onKeyDown={(event) => handleRailKeyDown(event, index)}
-                      className={cn(
-                        'flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-colors',
-                        'hover:bg-accent',
-                        'focus-visible:ring-[3px] focus-visible:ring-ring/50',
-                        isSelected && 'bg-accent text-accent-foreground'
-                      )}
-                    >
-                      <span className="flex size-6 shrink-0 items-center justify-center rounded-sm border border-border bg-card font-mono text-[11px] text-muted-foreground">
-                        {index + 1}
-                      </span>
-                      <span className="flex min-w-0 flex-col gap-px">
-                        <span className="truncate font-medium leading-tight">{workflow.title}</span>
-                        <span className="truncate text-[11px] text-muted-foreground">
-                          {workflow.meta}
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </nav>
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[260px_minmax(0,1fr)] md:grid-rows-1 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <FeatureWallRail
+            selectedId={selectedId}
+            previewPanelId={previewPanelId}
+            railRefs={railRefs}
+            onSelect={handleSelect}
+            onRailKeyDown={handleRailKeyDown}
+          />
 
           <section
             id={previewPanelId}
@@ -332,64 +322,58 @@ export default function FeatureWallModal(): JSX.Element | null {
             className="scrollbar-sleek grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-y-auto"
             aria-labelledby={previewTitleId}
           >
-            <div className="px-8 pb-3 pt-6">
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+            <div className="px-9 pb-3 pt-7">
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.05em] text-muted-foreground">
                 Workflow {selectedIndex + 1} of {FEATURE_WALL_WORKFLOWS.length} · {selected.title}
               </div>
-              <h3 id={previewTitleId} className="text-xl font-semibold leading-tight">
+              <h3
+                id={previewTitleId}
+                className="text-3xl font-semibold leading-tight tracking-tight"
+              >
                 {selected.title}
               </h3>
-              <p className="mt-1.5 max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
-                {selectedPresentation.lede}
-              </p>
+              {agentsActiveStep ? null : (
+                <p className="mt-3 text-lg leading-relaxed text-muted-foreground">
+                  {selectedPresentation.lede}
+                </p>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 items-start gap-6 px-8 pb-8 pt-2 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <PreviewMedia
-                key={selected.id}
-                posterUrl={posterUrl}
-                gifUrl={gifUrl}
-                showGif={showGif}
-                workflowTitle={selected.title}
-              />
-
-              <aside className="flex flex-col gap-5">
-                <ul className="flex flex-col gap-2.5" role="list">
-                  {selectedPresentation.bullets.map((bullet) => (
-                    <li
-                      key={bullet}
-                      className="flex items-start gap-2.5 text-[13px] leading-relaxed"
-                    >
-                      <span className="mt-1.5 inline-block size-1.5 shrink-0 rounded-full bg-foreground/40" />
-                      <span>{bullet}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                {selected.relatedTileIds.length > 0 ? (
-                  <RelatedFeatures workflow={selected} source={source} />
-                ) : null}
-              </aside>
-            </div>
+            <FeatureWallBody
+              selected={selected}
+              selectedPresentation={selectedPresentation}
+              posterUrl={posterUrl}
+              gifUrl={gifUrl}
+              showGif={showGif}
+              prefersReducedMotion={prefersReducedMotion}
+              source={source}
+              agentsActiveStep={agentsActiveStep}
+            />
           </section>
         </div>
 
-        <footer className="flex flex-col gap-3 border-t border-border bg-card/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <span className="text-[11px] text-muted-foreground">
-            Reopen any time from Help &gt; Feature tour.
+        {agentsActiveStep ? (
+          <AgentsStepper
+            steps={agentsSteps}
+            activeStepId={agentsActiveStep.id}
+            onSelect={setAgentsStepId}
+          />
+        ) : null}
+
+        <footer className="flex flex-col gap-3 border-t border-border bg-card/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-7">
+          <span className="text-xs text-muted-foreground">
+            Reopen any time from Help &gt; Explore Orca.
           </span>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Button variant="link" className="w-full sm:w-auto" onClick={handleSecondaryDocs}>
-              <ExternalLink className="size-3.5" />
-              Open docs
-            </Button>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => handlePrimaryCta(selectedPresentation.primaryCta)}
-            >
-              {selectedPresentation.primaryCta.label}
-              <ChevronRight className="size-3.5" />
-            </Button>
+            {selected.id === 'agents-orchestration' ? null : (
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => handlePrimaryCta(selectedPresentation.primaryCta)}
+              >
+                {selectedPresentation.primaryCta.label}
+                <ChevronRight className="size-3.5" />
+              </Button>
+            )}
           </div>
         </footer>
       </DialogContent>

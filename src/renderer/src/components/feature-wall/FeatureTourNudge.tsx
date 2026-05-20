@@ -104,14 +104,14 @@ export function FeatureTourNudge(): JSX.Element | null {
       <Card
         className="cursor-pointer gap-0 overflow-hidden py-0"
         role="complementary"
-        aria-label="Take the Orca feature tour"
+        aria-label="Explore Orca"
         onClick={handleOpenTour}
       >
         <div className="flex flex-col gap-3 p-3.5">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 space-y-0.5">
               <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
-                Feature tour
+                Explore Orca
               </div>
               <h3 className="truncate text-sm font-semibold">See what Orca can do</h3>
             </div>
@@ -123,7 +123,7 @@ export function FeatureTourNudge(): JSX.Element | null {
                 event.stopPropagation()
                 dismissFeatureTourNudge()
               }}
-              aria-label="Dismiss feature tour"
+              aria-label="Dismiss Explore Orca"
             >
               <X className="size-3.5" />
             </Button>
@@ -142,7 +142,7 @@ export function FeatureTourNudge(): JSX.Element | null {
             A quick walkthrough of the workflows built into Orca.
           </p>
           <p className="text-xs leading-snug text-muted-foreground">
-            Reopen any time from Help &gt; Feature tour.
+            Reopen any time from Help &gt; Explore Orca.
           </p>
 
           <Button variant="default" size="sm" className="w-full gap-1.5" onClick={handleOpenTour}>

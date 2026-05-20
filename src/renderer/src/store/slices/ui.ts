@@ -323,6 +323,7 @@ export type UISlice = {
       | 'experimental'
       | 'servers'
       | 'mobile'
+      | 'notifications'
       | 'ssh'
     repoId: string | null
     sectionId?: string

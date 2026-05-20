@@ -78,7 +78,7 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
   }
 
   const featureTourItem: Electron.MenuItemConstructorOptions = {
-    label: 'Feature tour',
+    label: 'Explore Orca',
     click: (_menuItem, window) => onOpenFeatureTour(window)
   }
 

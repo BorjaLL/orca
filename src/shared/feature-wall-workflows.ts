@@ -44,6 +44,25 @@ export type FeatureWallWorkflow = {
 
 export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
   {
+    id: 'workspaces',
+    title: 'Workspaces',
+    meta: 'Isolated work · Context kept together',
+    lede: 'Each piece of work gets its own workspace — isolated branch, terminal, editor, and agent state, all kept together.',
+    bullets: [
+      'Run agents in parallel — one workspace per task, no cross-talk.',
+      'Switch instantly — terminal, files, and browser restore intact.',
+      'Sleep a workspace to free memory — wake it later with state intact.'
+    ],
+    primaryTileId: 'tile-01',
+    relatedTileIds: ['tile-10'],
+    primaryCta: {
+      kind: 'docs',
+      label: 'Read workspace docs',
+      url: 'https://www.onorca.dev/docs/model/worktrees'
+    },
+    docsUrl: 'https://www.onorca.dev/docs/model/worktrees'
+  },
+  {
     id: 'tasks',
     title: 'Tasks',
     meta: 'GitHub · Linear',
@@ -57,25 +76,6 @@ export const FEATURE_WALL_WORKFLOWS: readonly FeatureWallWorkflow[] = [
     relatedTileIds: [],
     primaryCta: { kind: 'in-app', action: 'open-tasks', label: 'Open tasks' },
     docsUrl: 'https://www.onorca.dev/docs/review/linear'
-  },
-  {
-    id: 'workspaces',
-    title: 'Workspaces',
-    meta: 'Isolated work · Context kept together',
-    lede: 'Give each piece of work its own workspace so code, tools, and agent activity stay organized.',
-    bullets: [
-      'Run multiple efforts side by side without branch juggling.',
-      'Keep the relevant terminal, editor, browser, and review state with the workspace.',
-      'Compare outcomes and continue from the workspace that is moving best.'
-    ],
-    primaryTileId: 'tile-01',
-    relatedTileIds: ['tile-10'],
-    primaryCta: {
-      kind: 'docs',
-      label: 'Read workspace docs',
-      url: 'https://www.onorca.dev/docs/model/worktrees'
-    },
-    docsUrl: 'https://www.onorca.dev/docs/model/worktrees'
   },
   {
     id: 'agents-orchestration',
@@ -171,4 +171,4 @@ export function getFeatureWallWorkflow(id: FeatureWallWorkflowId): FeatureWallWo
   return FEATURE_WALL_WORKFLOWS.find((w) => w.id === id) ?? null
 }
 
-export const DEFAULT_FEATURE_WALL_WORKFLOW_ID: FeatureWallWorkflowId = 'tasks'
+export const DEFAULT_FEATURE_WALL_WORKFLOW_ID: FeatureWallWorkflowId = 'workspaces'
