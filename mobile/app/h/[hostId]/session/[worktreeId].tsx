@@ -63,6 +63,7 @@ import { ConfirmModal } from '../../../../src/components/ConfirmModal'
 import {
   CustomKeyModal,
   loadCustomKeys,
+  saveCustomKeys,
   type CustomKey
 } from '../../../../src/components/CustomKeyModal'
 import {
@@ -1674,7 +1675,7 @@ export default function SessionScreen() {
     async (key: CustomKey) => {
       const updated = customKeys.filter((k) => k.id !== key.id)
       setCustomKeys(updated)
-      await AsyncStorage.setItem('orca:custom-accessory-keys', JSON.stringify(updated))
+      await saveCustomKeys(updated)
     },
     [customKeys]
   )
