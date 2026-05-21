@@ -26,6 +26,7 @@ export const AGENTS_PANE_SEARCH_ENTRIES: SettingsSearchEntry[] = [
       'auggie',
       'cline',
       'codebuff',
+      'command code',
       'continue',
       'cursor',
       'droid',

@@ -141,6 +141,17 @@ export const AGENT_CATALOG: AgentCatalogEntry[] = [
     homepageUrl: 'https://www.codebuff.com/docs/help/quick-start'
   },
   {
+    id: 'command-code',
+    label: 'Command Code',
+    // Why: `npm i -g command-code` installs both `command-code` and the
+    // shorter alias `cmd`. Show the full name in the settings hint so it
+    // matches TUI_AGENT_CONFIG['command-code'].detectCmd and avoids any
+    // suggestion that Orca is looking for Windows' built-in `cmd.exe`.
+    cmd: 'command-code',
+    faviconDomain: 'commandcode.ai',
+    homepageUrl: 'https://commandcode.ai/docs/quickstart'
+  },
+  {
     id: 'continue',
     label: 'Continue',
     cmd: 'continue',

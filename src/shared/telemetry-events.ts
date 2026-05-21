@@ -52,6 +52,7 @@ export const AGENT_KIND_VALUES = [
   'aug',
   'cline',
   'codebuff',
+  'command-code',
   'continue',
   'cursor',
   'droid',

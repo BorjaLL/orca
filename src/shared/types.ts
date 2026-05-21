@@ -1428,6 +1428,7 @@ export type TuiAgent =
   | 'aug' // Augment/Auggie
   | 'cline' // Cline
   | 'codebuff' // Codebuff
+  | 'command-code' // Command Code
   | 'continue' // Continue
   | 'cursor' // Cursor
   | 'droid' // Factory Droid
