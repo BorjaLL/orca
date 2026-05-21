@@ -95,6 +95,37 @@ describe('PortsPanel runtime routing', () => {
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
+  it('coalesces concurrent local scans for the same runtime target and repo', async () => {
+    let resolveScan: (scan: WorkspacePortScanResult) => void = () => {}
+    localScan.mockReturnValueOnce(
+      new Promise<WorkspacePortScanResult>((resolve) => {
+        resolveScan = resolve
+      })
+    )
+
+    const first = scanWorkspacePortsForTarget({ kind: 'local' }, 'repo')
+    const second = scanWorkspacePortsForTarget({ kind: 'local' }, 'repo')
+
+    expect(localScan).toHaveBeenCalledTimes(1)
+    expect(localScan).toHaveBeenCalledWith({ repoId: 'repo' })
+
+    resolveScan(emptyScan)
+    await expect(Promise.all([first, second])).resolves.toEqual([emptyScan, emptyScan])
+  })
+
+  it('keeps separate scan keys for different repos', async () => {
+    localScan.mockResolvedValue(emptyScan)
+
+    await Promise.all([
+      scanWorkspacePortsForTarget({ kind: 'local' }, 'repo-a'),
+      scanWorkspacePortsForTarget({ kind: 'local' }, 'repo-b')
+    ])
+
+    expect(localScan).toHaveBeenCalledTimes(2)
+    expect(localScan).toHaveBeenNthCalledWith(1, { repoId: 'repo-a' })
+    expect(localScan).toHaveBeenNthCalledWith(2, { repoId: 'repo-b' })
+  })
+
   it('routes remote scans through runtime RPC and degrades on older runtimes', async () => {
     runtimeEnvironmentCall.mockImplementation(({ method }: { method: string }) =>
       Promise.resolve(
