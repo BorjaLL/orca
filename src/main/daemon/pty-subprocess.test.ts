@@ -214,6 +214,26 @@ describe('createPtySubprocess', () => {
     expect(env.ORCA_WORKTREE_ID).toBe('child-worktree')
   })
 
+  it('strips ELECTRON_RUN_AS_NODE inherited from the daemon process', () => {
+    const proc = mockPtyProcess()
+    spawnMock.mockReturnValue(proc)
+    const previous = process.env.ELECTRON_RUN_AS_NODE
+    process.env.ELECTRON_RUN_AS_NODE = '1'
+
+    try {
+      createPtySubprocess({ sessionId: 'test', cols: 80, rows: 24 })
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ELECTRON_RUN_AS_NODE
+      } else {
+        process.env.ELECTRON_RUN_AS_NODE = previous
+      }
+    }
+
+    const env = spawnMock.mock.calls.at(-1)?.[2].env
+    expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
+  })
+
   it('does not inherit parent agent hook endpoint for development hook env', () => {
     const proc = mockPtyProcess()
     spawnMock.mockReturnValue(proc)
