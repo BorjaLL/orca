@@ -1,39 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { Check, Copy, FileText, Folder, Globe, Trash2 } from 'lucide-react'
-import type {
-  DiagnosticsBundlePayload,
-  DiagnosticsStatusPayload,
-  DiagnosticsUploadPayload
-} from '../../../../preload/api-types'
+import { Folder, Globe, Trash2 } from 'lucide-react'
+import type { DiagnosticsStatusPayload } from '../../../../preload/api-types'
 import { Button } from '../ui/button'
 import { Label } from '../ui/label'
 import { Separator } from '../ui/separator'
 
-type PreviewState =
-  | { stage: 'idle' }
-  | { stage: 'collecting' }
-  | { stage: 'preview'; bundle: DiagnosticsBundlePayload }
-  | { stage: 'uploading'; bundle: DiagnosticsBundlePayload }
-  | { stage: 'sent'; ticketId: string; bundleSubmissionId: string }
-
 export function PrivacyDiagnosticsSection(): React.JSX.Element {
   const [status, setStatus] = useState<DiagnosticsStatusPayload | null>(null)
-  const [preview, setPreview] = useState<PreviewState>({ stage: 'idle' })
-  const [copied, setCopied] = useState(false)
-  const [deletingTicket, setDeletingTicket] = useState(false)
-  const refreshTokenRef = useRef(0)
-  const copyTimerRef = useRef<number | null>(null)
-  const activeBundleSubmissionIdRef = useRef<string | null>(null)
-  const mountedRef = useRef(true)
 
   const refreshStatus = useCallback(async (): Promise<void> => {
-    const token = ++refreshTokenRef.current
     try {
       const next = await window.api.diagnostics.getStatus()
-      if (token === refreshTokenRef.current) {
-        setStatus(next)
-      }
+      setStatus(next)
     } catch {
       /* swallow — pane shows N/A while the IPC is unavailable */
     }
@@ -42,25 +21,6 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
   useEffect(() => {
     void refreshStatus()
   }, [refreshStatus])
-
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false
-      if (copyTimerRef.current !== null) {
-        window.clearTimeout(copyTimerRef.current)
-      }
-      if (activeBundleSubmissionIdRef.current) {
-        void window.api.diagnostics.discardBundlePreview(activeBundleSubmissionIdRef.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    activeBundleSubmissionIdRef.current =
-      preview.stage === 'preview' || preview.stage === 'uploading'
-        ? preview.bundle.bundleSubmissionId
-        : null
-  }, [preview])
 
   const handleOpenFolder = useCallback(async (): Promise<void> => {
     try {
@@ -72,110 +32,13 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
 
   const handleClear = useCallback(async (): Promise<void> => {
     try {
-      if (preview.stage === 'preview' || preview.stage === 'uploading') {
-        await window.api.diagnostics.discardBundlePreview(preview.bundle.bundleSubmissionId)
-        setPreview({ stage: 'idle' })
-      }
       await window.api.diagnostics.clearTraces()
       await refreshStatus()
       toast.success('Local trace files cleared')
     } catch {
       toast.error('Could not clear trace files')
     }
-  }, [preview, refreshStatus])
-
-  const handleStartShare = useCallback(async (): Promise<void> => {
-    setPreview({ stage: 'collecting' })
-    try {
-      const bundle = await window.api.diagnostics.collectBundle()
-      if (!mountedRef.current) {
-        await window.api.diagnostics.discardBundlePreview(bundle.bundleSubmissionId)
-        return
-      }
-      setPreview({ stage: 'preview', bundle })
-    } catch (err) {
-      setPreview({ stage: 'idle' })
-      toast.error(`Could not collect bundle: ${(err as Error).message}`)
-    }
-  }, [])
-
-  const handleConfirmUpload = useCallback(async (): Promise<void> => {
-    if (preview.stage !== 'preview') {
-      return
-    }
-    const { bundle } = preview
-    setPreview({ stage: 'uploading', bundle })
-    try {
-      const result: DiagnosticsUploadPayload = await window.api.diagnostics.uploadBundle(
-        bundle.bundleSubmissionId
-      )
-      setPreview({
-        stage: 'sent',
-        ticketId: result.ticketId,
-        bundleSubmissionId: bundle.bundleSubmissionId
-      })
-    } catch (err) {
-      setPreview({ stage: 'preview', bundle })
-      toast.error(`Could not upload bundle: ${(err as Error).message}`)
-    }
-  }, [preview])
-
-  const handleOpenPreview = useCallback(async (): Promise<void> => {
-    if (preview.stage !== 'preview' && preview.stage !== 'uploading') {
-      return
-    }
-    try {
-      await window.api.diagnostics.openBundlePreview(preview.bundle.bundleSubmissionId)
-    } catch (err) {
-      toast.error(`Could not open bundle preview: ${(err as Error).message}`)
-    }
-  }, [preview])
-
-  const handleCancelPreview = useCallback(async (): Promise<void> => {
-    if (preview.stage === 'preview' || preview.stage === 'uploading') {
-      try {
-        await window.api.diagnostics.discardBundlePreview(preview.bundle.bundleSubmissionId)
-      } catch {
-        /* best effort */
-      }
-    }
-    setPreview({ stage: 'idle' })
-  }, [preview])
-
-  const handleCopyTicket = useCallback(async (): Promise<void> => {
-    if (preview.stage !== 'sent') {
-      return
-    }
-    try {
-      await navigator.clipboard.writeText(preview.ticketId)
-      setCopied(true)
-      if (copyTimerRef.current !== null) {
-        window.clearTimeout(copyTimerRef.current)
-      }
-      copyTimerRef.current = window.setTimeout(() => {
-        copyTimerRef.current = null
-        setCopied(false)
-      }, 2_000)
-    } catch {
-      toast.error('Could not copy ticket ID')
-    }
-  }, [preview])
-
-  const handleDeleteBundle = useCallback(async (): Promise<void> => {
-    if (preview.stage !== 'sent') {
-      return
-    }
-    setDeletingTicket(true)
-    try {
-      await window.api.diagnostics.deleteBundle(preview.ticketId)
-      setPreview({ stage: 'idle' })
-      toast.success('Diagnostic bundle deleted')
-    } catch (err) {
-      toast.error(`Could not delete bundle: ${(err as Error).message}`)
-    } finally {
-      setDeletingTicket(false)
-    }
-  }, [preview])
+  }, [refreshStatus])
 
   return (
     <>
@@ -207,39 +70,6 @@ export function PrivacyDiagnosticsSection(): React.JSX.Element {
           Clear local traces
         </Button>
       </Section>
-      <Separator />
-      <Section
-        icon={<FileText className="size-4" />}
-        title="Share a diagnostic bundle"
-        description="Preview and optionally upload the last 30 minutes of redacted traces."
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={!status?.bundleEnabled || preview.stage !== 'idle'}
-          onClick={() => void handleStartShare()}
-        >
-          {preview.stage === 'collecting' ? 'Collecting…' : 'Share a diagnostic bundle'}
-        </Button>
-      </Section>
-      {preview.stage === 'preview' || preview.stage === 'uploading' ? (
-        <BundlePreview
-          state={preview}
-          onOpenPreview={() => void handleOpenPreview()}
-          onCancel={() => void handleCancelPreview()}
-          onConfirm={() => void handleConfirmUpload()}
-        />
-      ) : null}
-      {preview.stage === 'sent' ? (
-        <TicketReceipt
-          ticketId={preview.ticketId}
-          copied={copied}
-          deleting={deletingTicket}
-          onCopy={() => void handleCopyTicket()}
-          onDelete={() => void handleDeleteBundle()}
-          onDismiss={() => setPreview({ stage: 'idle' })}
-        />
-      ) : null}
       <Separator />
       <Section
         icon={<Globe className="size-4" />}
@@ -298,7 +128,7 @@ function Section({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="flex items-start justify-between gap-4 py-2">
+    <div className="flex flex-col gap-3 py-2 sm:flex-row sm:items-start sm:justify-between">
       <div className="flex flex-1 items-start gap-3">
         <div className="mt-1 text-muted-foreground">{icon}</div>
         <div className="space-y-1">
@@ -306,99 +136,8 @@ function Section({
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
       </div>
-      <div className="shrink-0 self-center">{children}</div>
-    </div>
-  )
-}
-
-function BundlePreview({
-  state,
-  onOpenPreview,
-  onCancel,
-  onConfirm
-}: {
-  state: Extract<PreviewState, { stage: 'preview' | 'uploading' }>
-  onOpenPreview: () => void
-  onCancel: () => void
-  onConfirm: () => void
-}): React.JSX.Element {
-  const uploading = state.stage === 'uploading'
-  return (
-    <div className="rounded border border-border/60 bg-card/40 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <Label htmlFor="diagnostics-bundle-preview" className="text-xs">
-          Bundle preview · {state.bundle.spanCount} span(s) ·{' '}
-          {Math.round(state.bundle.bytes / 1024)} KB
-        </Label>
-        <span className="text-xs text-muted-foreground">ID: {state.bundle.bundleSubmissionId}</span>
-      </div>
-      <textarea
-        id="diagnostics-bundle-preview"
-        className="h-72 w-full resize-y rounded border border-border/60 bg-background p-2 font-mono text-[11px] leading-tight"
-        value={[
-          'Diagnostic bundle payload is retained in the main process.',
-          `Bundle ID: ${state.bundle.bundleSubmissionId}`,
-          `Spans: ${state.bundle.spanCount}`,
-          `Size: ${Math.round(state.bundle.bytes / 1024)} KB`,
-          '',
-          'Open the preview file to inspect the exact redacted NDJSON before uploading.'
-        ].join('\n')}
-        readOnly
-        spellCheck={false}
-      />
-      <div className="mt-2 flex justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={onOpenPreview} disabled={uploading}>
-          <FileText className="size-3" />
-          Open preview
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onCancel} disabled={uploading}>
-          Cancel
-        </Button>
-        <Button size="sm" onClick={onConfirm} disabled={uploading}>
-          {uploading ? 'Uploading…' : 'Send to Orca support'}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function TicketReceipt({
-  ticketId,
-  copied,
-  deleting,
-  onCopy,
-  onDelete,
-  onDismiss
-}: {
-  ticketId: string
-  copied: boolean
-  deleting: boolean
-  onCopy: () => void
-  onDelete: () => void
-  onDismiss: () => void
-}): React.JSX.Element {
-  return (
-    <div className="rounded border border-border/70 bg-muted/20 p-3">
-      <div className="text-sm font-medium">Bundle uploaded</div>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Attach this ticket ID to your GitHub issue or support email so the Orca team can find your
-        bundle.
-      </p>
-      <div className="mt-2 flex items-center gap-2 rounded bg-background p-2 font-mono text-xs">
-        <span className="flex-1 break-all">{ticketId}</span>
-        <Button variant="ghost" size="sm" onClick={onCopy} className="gap-1">
-          {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
-      </div>
-      <div className="mt-2 flex justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={onDelete} disabled={deleting}>
-          <Trash2 className="size-3" />
-          {deleting ? 'Deleting' : 'Delete this bundle'}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onDismiss}>
-          Done
-        </Button>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 self-start sm:justify-end sm:self-center">
+        {children}
       </div>
     </div>
   )

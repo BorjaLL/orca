@@ -58,28 +58,42 @@ const pendingBundles = new Map<string, PendingBundle>()
 // The dev escape hatch is `ORCA_DIAGNOSTICS_TOKEN_URL` — set this env var
 // to point at a local server during development. Mirrors the
 // `ORCA_OTLP_TRACES_URL` env-var pattern for OTLP.
-const BUILD_TOKEN_ENDPOINT: string | null =
-  typeof ORCA_DIAGNOSTICS_TOKEN_URL !== 'undefined'
-    ? ORCA_DIAGNOSTICS_TOKEN_URL
-    : ((globalThis as { ORCA_DIAGNOSTICS_TOKEN_URL?: string | null }).ORCA_DIAGNOSTICS_TOKEN_URL ??
-      null)
-
-function resolveTokenEndpoint(): string | null {
-  // env wins so a developer can point a packaged build at a staging server
-  // for end-to-end validation without re-running the release pipeline.
-  const fromEnv = process.env.ORCA_DIAGNOSTICS_TOKEN_URL
-  if (fromEnv && fromEnv.length > 0) {
-    return fromEnv
-  }
-  return BUILD_TOKEN_ENDPOINT
+function resolveBuildTokenEndpoint(): string | null {
+  const endpoint =
+    typeof ORCA_DIAGNOSTICS_TOKEN_URL !== 'undefined'
+      ? ORCA_DIAGNOSTICS_TOKEN_URL
+      : ((globalThis as { ORCA_DIAGNOSTICS_TOKEN_URL?: string | null })
+          .ORCA_DIAGNOSTICS_TOKEN_URL ?? null)
+  return typeof endpoint === 'string' && endpoint.length > 0 ? endpoint : null
 }
 
-function resolveOrcaChannel(): 'stable' | 'rc' | 'dev' {
+function resolveBuildIdentity(): 'stable' | 'rc' | null {
   const ident =
     typeof ORCA_BUILD_IDENTITY !== 'undefined'
       ? ORCA_BUILD_IDENTITY
       : ((globalThis as { ORCA_BUILD_IDENTITY?: 'stable' | 'rc' | null }).ORCA_BUILD_IDENTITY ??
         null)
+  return ident === 'stable' || ident === 'rc' ? ident : null
+}
+
+function resolveTokenEndpoint(): string | null {
+  const buildEndpoint = resolveBuildTokenEndpoint()
+  // Official builds must stay pinned to the CI-substituted endpoint; the
+  // upload confirmation says "Orca support", so env cannot redirect it.
+  if (resolveBuildIdentity()) {
+    return buildEndpoint
+  }
+  // Env wins only for dev / unofficial builds so contributors can point a
+  // local packaged app at staging without re-running a release pipeline.
+  const fromEnv = process.env.ORCA_DIAGNOSTICS_TOKEN_URL
+  if (fromEnv && fromEnv.length > 0) {
+    return fromEnv
+  }
+  return buildEndpoint
+}
+
+function resolveOrcaChannel(): 'stable' | 'rc' | 'dev' {
+  const ident = resolveBuildIdentity()
   if (ident === 'stable' || ident === 'rc') {
     return ident
   }

@@ -304,6 +304,25 @@ describe('bundle — collection', () => {
       })
     ).not.toThrow()
   })
+
+  it('skips valid JSON lines that are not span objects without throwing', () => {
+    writeFileSync(
+      traceFile,
+      [JSON.stringify(makeSpan({ name: 'valid' })), 'null', '"string"', '42', '[1]', ''].join('\n')
+    )
+    const bundle = collectBundle({
+      traceFilePath: traceFile,
+      maxFiles: 10,
+      appVersion: '1',
+      platform: 'darwin',
+      arch: 'arm64',
+      osRelease: '24',
+      orcaChannel: 'dev'
+    })
+
+    expect(bundle.spanCount).toBe(1)
+    expect(bundle.payload).toContain('"name":"valid"')
+  })
 })
 
 describe('validateUploadUrl', () => {

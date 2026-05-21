@@ -22,8 +22,10 @@
 //      on disk. Both knobs are configurable for tests.
 
 import {
+  chmodSync,
   closeSync,
   existsSync,
+  fchmodSync,
   fstatSync,
   mkdirSync,
   openSync,
@@ -38,6 +40,8 @@ const DEFAULT_FLUSH_BUFFER_THRESHOLD = 32
 export const DEFAULT_MAX_BYTES = 10 * 1024 * 1024 // 10 MB
 export const DEFAULT_MAX_FILES = 10
 export const DEFAULT_BATCH_WINDOW_MS = 200
+const PRIVATE_DIRECTORY_MODE = 0o700
+const PRIVATE_FILE_MODE = 0o600
 
 export type LocalFileSinkOptions = {
   readonly filePath: string
@@ -57,6 +61,22 @@ export type LocalFileSink = {
   close(): void
 }
 
+function chmodPathIfPresent(path: string, mode: number): void {
+  try {
+    if (existsSync(path)) {
+      chmodSync(path, mode)
+    }
+  } catch {
+    /* best effort — permissions hardening must not break trace writes */
+  }
+}
+
+function tightenTraceFamilyPermissions(filePath: string, maxFiles: number): void {
+  for (let i = 0; i < maxFiles; i++) {
+    chmodPathIfPresent(i === 0 ? filePath : `${filePath}.${i}`, PRIVATE_FILE_MODE)
+  }
+}
+
 export function createLocalFileSink(opts: LocalFileSinkOptions): LocalFileSink {
   const filePath = opts.filePath
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES
@@ -64,9 +84,12 @@ export function createLocalFileSink(opts: LocalFileSinkOptions): LocalFileSink {
   const batchWindowMs = opts.batchWindowMs ?? DEFAULT_BATCH_WINDOW_MS
   const flushThreshold = opts.flushBufferThreshold ?? DEFAULT_FLUSH_BUFFER_THRESHOLD
 
-  // Lazy directory creation — the trace folder may not exist on first run.
-  // `mkdirSync` is idempotent with `recursive: true`.
-  mkdirSync(dirname(filePath), { recursive: true })
+  // Local traces can contain paths and crash context; keep them readable only
+  // by the current user even on systems with permissive default umasks.
+  const traceDirectory = dirname(filePath)
+  mkdirSync(traceDirectory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE })
+  chmodPathIfPresent(traceDirectory, PRIVATE_DIRECTORY_MODE)
+  tightenTraceFamilyPermissions(filePath, maxFiles)
 
   // The sink owns one open fd. The fd is recreated on rotation; the rotation
   // routine closes the old fd, renames the file, and opens a fresh one. We
@@ -82,7 +105,13 @@ export function createLocalFileSink(opts: LocalFileSinkOptions): LocalFileSink {
   let closed = false
 
   function openAppend(path: string): number {
-    return openSync(path, 'a')
+    const handle = openSync(path, 'a', PRIVATE_FILE_MODE)
+    try {
+      fchmodSync(handle, PRIVATE_FILE_MODE)
+    } catch {
+      /* best effort — Windows can reject POSIX-style chmod on some volumes */
+    }
+    return handle
   }
 
   function safeFstatSize(handle: number): number {

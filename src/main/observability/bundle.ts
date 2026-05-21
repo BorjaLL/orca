@@ -139,6 +139,9 @@ export function collectBundle(opts: CollectBundleOptions): CollectedBundle {
       } catch {
         continue
       }
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        continue
+      }
       const record = parsed as { startTimeUnixNano?: string; endTimeUnixNano?: string }
       // Filter by end-time, not start-time. A long-lived span started 35
       // minutes ago but ending inside the lookback is exactly what we want

@@ -27,8 +27,8 @@ export const PRIVACY_PANE_SEARCH_ENTRIES: SettingsSearchEntry[] = [
   },
   {
     title: 'Diagnostics',
-    description: 'Trace files, bundle sharing, and OTLP export controls.',
-    keywords: ['diagnostics', 'trace', 'bundle', 'logs', 'otlp', 'opentelemetry', 'support']
+    description: 'Trace files and OTLP export controls.',
+    keywords: ['diagnostics', 'trace', 'logs', 'otlp', 'opentelemetry', 'support']
   },
   {
     title: 'Telemetry environment variables',

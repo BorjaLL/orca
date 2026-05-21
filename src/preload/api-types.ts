@@ -174,7 +174,11 @@ import type {
 } from '../shared/commit-message-agent-spec'
 import type { ShellOpenLocalPathResult } from '../shared/shell-open-types'
 import type { SkillDiscoveryResult } from '../shared/skills'
-import type { CrashReportRecord } from '../shared/crash-reporting'
+import type {
+  CrashReportRecord,
+  CrashReportSubmitArgs,
+  CrashReportSubmitResult
+} from '../shared/crash-reporting'
 
 export type { ShellOpenLocalPathResult } from '../shared/shell-open-types'
 
@@ -770,8 +774,9 @@ export type PreloadApi = {
   }
   crashReports: {
     getLatestPending: () => Promise<CrashReportRecord | null>
+    getLatestReport: () => Promise<CrashReportRecord | null>
     dismiss: (args: { reportId: string }) => Promise<CrashReportRecord | null>
-    markSent: (args: { reportId: string }) => Promise<CrashReportRecord | null>
+    submit: (args: CrashReportSubmitArgs) => Promise<CrashReportSubmitResult>
     copyLatestDiagnostics: (args?: {
       reportId?: string
       notes?: string

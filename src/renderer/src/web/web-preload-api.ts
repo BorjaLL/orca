@@ -106,8 +106,14 @@ function createWebPreloadApi(): Partial<PreloadApi> {
     ui: createWebUiApi(),
     crashReports: {
       getLatestPending: () => Promise.resolve(null),
+      getLatestReport: () => Promise.resolve(null),
       dismiss: () => Promise.resolve(null),
-      markSent: () => Promise.resolve(null),
+      submit: () =>
+        Promise.resolve({
+          ok: false,
+          status: null,
+          error: 'Unavailable on web.'
+        }),
       copyLatestDiagnostics: () => Promise.resolve({ ok: false, error: 'Unavailable on web.' })
     },
     diagnostics: {
@@ -118,8 +124,7 @@ function createWebPreloadApi(): Partial<PreloadApi> {
           bundleEnabled: false,
           otlpStatus: 'Unavailable on web',
           traceFilePath: '',
-          traceFamilySize: 0,
-          disabledReason: 'orca_diagnostics_disabled'
+          traceFamilySize: 0
         }),
       openTraceFolder: () => Promise.resolve(),
       clearTraces: () => Promise.resolve(),
