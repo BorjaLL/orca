@@ -395,6 +395,72 @@ describe('hydrateWorkspaceSession', () => {
     expect(s.workspaceSessionReady).toBe(false)
   })
 
+  it('preserves tabs for a known repo whose worktrees have not loaded yet', () => {
+    // Why (#1158): empty per-repo worktrees can mean a degraded local fetch or
+    // SSH reconnect race, not that every persisted tab for the repo is stale.
+    const store = createTestStore()
+    const stalledWt = 'repo1::/path/wt1'
+
+    store.setState({
+      repos: [
+        { id: 'repo1', path: '/repo1', displayName: 'Repo 1', badgeColor: '#000', addedAt: 0 }
+      ],
+      worktreesByRepo: { repo1: [] }
+    })
+
+    store.getState().hydrateWorkspaceSession({
+      activeRepoId: 'repo1',
+      activeWorktreeId: stalledWt,
+      activeTabId: 'tab1',
+      tabsByWorktree: {
+        [stalledWt]: [makeTab({ id: 'tab1', worktreeId: stalledWt })]
+      },
+      terminalLayoutsByTabId: {
+        tab1: makeLayout()
+      }
+    })
+
+    const s = store.getState()
+    expect(s.tabsByWorktree[stalledWt]).toHaveLength(1)
+    expect(s.tabsByWorktree[stalledWt][0].id).toBe('tab1')
+    expect(s.terminalLayoutsByTabId['tab1']).toBeDefined()
+    expect(s.activeWorktreeId).toBe(stalledWt)
+    expect(s.activeTabId).toBe('tab1')
+  })
+
+  it('drops tabs for an unknown repo', () => {
+    // Why: the carve-out only forgives missing worktrees for repos that still
+    // exist in the repos list. If the user removed the whole repo, its tabs
+    // are genuinely stale and must be dropped.
+    const store = createTestStore()
+    const orphanWt = 'repoGone::/path/wt1'
+
+    store.setState({
+      repos: [
+        { id: 'repo1', path: '/repo1', displayName: 'Repo 1', badgeColor: '#000', addedAt: 0 }
+      ],
+      worktreesByRepo: { repo1: [] }
+    })
+
+    store.getState().hydrateWorkspaceSession({
+      activeRepoId: 'repo1',
+      activeWorktreeId: orphanWt,
+      activeTabId: 'tab-orphan',
+      tabsByWorktree: {
+        [orphanWt]: [makeTab({ id: 'tab-orphan', worktreeId: orphanWt })]
+      },
+      terminalLayoutsByTabId: {
+        'tab-orphan': makeLayout()
+      }
+    })
+
+    const s = store.getState()
+    expect(s.tabsByWorktree[orphanWt]).toBeUndefined()
+    expect(s.terminalLayoutsByTabId['tab-orphan']).toBeUndefined()
+    expect(s.activeWorktreeId).toBeNull()
+    expect(s.activeTabId).toBeNull()
+  })
+
   it('restores valid activeWorktreeId and activeTabId', () => {
     const store = createTestStore()
     const validWt = 'repo1::/path/wt1'
