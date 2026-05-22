@@ -65,6 +65,20 @@ describe('removeSshTargetWithBestEffortCleanup', () => {
     expect(api.removeTarget).toHaveBeenCalledWith({ id: 'ssh-1' })
   })
 
+  it('removes the target when retry termination fails after reconnect', async () => {
+    const terminateSessions = vi
+      .fn()
+      .mockRejectedValueOnce(new Error(`${SSH_TERMINATE_RECONNECT_REQUIRED}: relay detached`))
+      .mockRejectedValueOnce(new Error('shutdown failed after reconnect'))
+    const api = createApi({ terminateSessions })
+
+    await removeSshTargetWithBestEffortCleanup(api, 'ssh-1')
+
+    expect(terminateSessions).toHaveBeenCalledTimes(2)
+    expect(api.connect).toHaveBeenCalledWith({ targetId: 'ssh-1' })
+    expect(api.removeTarget).toHaveBeenCalledWith({ id: 'ssh-1' })
+  })
+
   it('removes the target when termination fails with an unrelated error', async () => {
     const terminateSessions = vi.fn().mockRejectedValueOnce(new Error('Some other backend error'))
     const api = createApi({ terminateSessions })
