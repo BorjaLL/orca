@@ -62,9 +62,12 @@ export function useCreatePullRequestDialogFields({
   onBranchChangedByGeneration,
   generation
 }: UseCreatePullRequestDialogFieldsOptions) {
-  const commitMessageAi = settings?.commitMessageAi
-  const effectiveCommitMessageAgentId = resolveCommitMessageAgentChoice(
-    commitMessageAi?.agentId,
+  // Why: PR detail generation uses its own settings but falls back to the
+  // commit-message settings when the AI Pull Requests pane was never touched,
+  // matching the resolver's fallback so the dialog gating stays in sync.
+  const pullRequestAi = settings?.pullRequestAi ?? settings?.commitMessageAi
+  const effectivePullRequestAgentId = resolveCommitMessageAgentChoice(
+    pullRequestAi?.agentId,
     settings?.defaultTuiAgent
   )
   const initializedFromEligibilityRef = useRef<string | null>(null)
@@ -184,15 +187,15 @@ export function useCreatePullRequestDialogFields({
   let generateDisabledReason: string | undefined
   if (submitting) {
     generateDisabledReason = 'Create PR in progress...'
-  } else if (!commitMessageAi?.enabled) {
-    generateDisabledReason = 'Enable AI commit messages in Settings -> Git.'
-  } else if (!effectiveCommitMessageAgentId) {
-    generateDisabledReason = 'Pick an agent in Settings -> Git -> AI Commit Messages.'
-  } else if (isCustomAgentId(effectiveCommitMessageAgentId)) {
-    const command = commitMessageAi.customAgentCommand?.trim() ?? ''
+  } else if (!pullRequestAi?.enabled) {
+    generateDisabledReason = 'Enable AI pull request details in Settings -> Git.'
+  } else if (!effectivePullRequestAgentId) {
+    generateDisabledReason = 'Pick an agent in Settings -> Git -> AI Pull Requests.'
+  } else if (isCustomAgentId(effectivePullRequestAgentId)) {
+    const command = pullRequestAi.customAgentCommand?.trim() ?? ''
     if (!command) {
       generateDisabledReason =
-        'Custom command is empty. Add one in Settings -> Git -> AI Commit Messages.'
+        'Custom command is empty. Add one in Settings -> Git -> AI Pull Requests.'
     }
   } else if (!base.trim()) {
     generateDisabledReason = 'Choose a base branch before generating.'
@@ -309,7 +312,7 @@ export function useCreatePullRequestDialogFields({
   }, [generation])
 
   return {
-    aiGenerationEnabled: commitMessageAi?.enabled === true,
+    aiGenerationEnabled: pullRequestAi?.enabled === true,
     base,
     setBase,
     title,

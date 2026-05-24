@@ -112,6 +112,7 @@ export const GitDiscoverCommitMessageModels = WorktreeSelector.extend({
 })
 
 export const GitGeneratePullRequestFields = GitGenerateCommitMessage.extend({
+  pullRequestAi: CommitMessageAiSettings.optional(),
   base: z.string().min(1, 'Missing base branch'),
   title: z.string(),
   body: z.string(),

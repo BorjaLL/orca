@@ -110,13 +110,32 @@ export function trimGeneratedCommitMessage(message: string): string {
   return message.replace(/\s+$/, '')
 }
 
-export function resolveCommitMessageSettings(
+// Why: commit-message and pull-request generation share one resolution path but
+// surface feature-specific guidance, so the noun + settings location are
+// injected rather than hard-coded.
+type AiGenerationFeatureCopy = {
+  featureLabel: string
+  settingsPath: string
+}
+
+const COMMIT_MESSAGE_FEATURE_COPY: AiGenerationFeatureCopy = {
+  featureLabel: 'AI commit messages',
+  settingsPath: 'Settings -> Git -> AI Commit Messages'
+}
+
+const PULL_REQUEST_FEATURE_COPY: AiGenerationFeatureCopy = {
+  featureLabel: 'AI pull request details',
+  settingsPath: 'Settings -> Git -> AI Pull Requests'
+}
+
+function resolveAiGenerationSettings(
+  config: GlobalSettings['commitMessageAi'],
   settings: GlobalSettings,
-  discoveryHostKey = LOCAL_COMMIT_MESSAGE_HOST_KEY
+  discoveryHostKey: string,
+  copy: AiGenerationFeatureCopy
 ): ResolveCommitMessageSettingsResult {
-  const config = settings.commitMessageAi
   if (!config?.enabled) {
-    return { ok: false, error: 'Enable AI commit messages in Settings -> Git.' }
+    return { ok: false, error: `Enable ${copy.featureLabel} in Settings -> Git.` }
   }
 
   const agentChoice = resolveCommitMessageAgentChoice(config.agentId, settings.defaultTuiAgent)
@@ -124,8 +143,8 @@ export function resolveCommitMessageSettings(
     return {
       ok: false,
       error:
-        `Default agent "${settings.defaultTuiAgent}" does not support AI commit messages. ` +
-        'Choose Claude or Codex in Settings -> Git -> AI Commit Messages.'
+        `Default agent "${settings.defaultTuiAgent}" does not support ${copy.featureLabel}. ` +
+        `Choose Claude or Codex in ${copy.settingsPath}.`
     }
   }
 
@@ -134,7 +153,7 @@ export function resolveCommitMessageSettings(
     if (!customAgentCommand) {
       return {
         ok: false,
-        error: 'Custom command is empty. Add one in Settings -> Git -> AI Commit Messages.'
+        error: `Custom command is empty. Add one in ${copy.settingsPath}.`
       }
     }
     return {
@@ -151,7 +170,7 @@ export function resolveCommitMessageSettings(
   const agentId = agentChoice
   const spec = getCommitMessageAgentSpec(agentId)
   if (!spec) {
-    return { ok: false, error: `Agent "${agentId}" does not support AI commit messages.` }
+    return { ok: false, error: `Agent "${agentId}" does not support ${copy.featureLabel}.` }
   }
 
   const hostSelectedModels = config.selectedModelByAgentByHost?.[discoveryHostKey]
@@ -188,6 +207,33 @@ export function resolveCommitMessageSettings(
       ...(agentCommandOverride ? { agentCommandOverride } : {})
     }
   }
+}
+
+export function resolveCommitMessageSettings(
+  settings: GlobalSettings,
+  discoveryHostKey = LOCAL_COMMIT_MESSAGE_HOST_KEY
+): ResolveCommitMessageSettingsResult {
+  return resolveAiGenerationSettings(
+    settings.commitMessageAi,
+    settings,
+    discoveryHostKey,
+    COMMIT_MESSAGE_FEATURE_COPY
+  )
+}
+
+// Why: PR generation has its own settings but falls back to commit-message
+// settings when unconfigured, preserving the prior shared behavior for profiles
+// that never opened the AI Pull Requests pane.
+export function resolvePullRequestAiSettings(
+  settings: GlobalSettings,
+  discoveryHostKey = LOCAL_COMMIT_MESSAGE_HOST_KEY
+): ResolveCommitMessageSettingsResult {
+  return resolveAiGenerationSettings(
+    settings.pullRequestAi ?? settings.commitMessageAi,
+    settings,
+    discoveryHostKey,
+    PULL_REQUEST_FEATURE_COPY
+  )
 }
 
 function sanitizeAgentFailureDetail(detail: string | null): string | null {

@@ -1833,6 +1833,11 @@ export type GlobalSettings = {
    *  user-customizable prompt suffix. Optional so existing profiles do not
    *  require a migration step before this feature lands. */
   commitMessageAi?: CommitMessageAiSettings
+  /** AI-generated pull request details: same option surface as commit
+   *  messages but configured independently. Optional and, when unset, the
+   *  resolver falls back to `commitMessageAi`, so existing profiles keep the
+   *  prior shared-settings behavior with no migration. */
+  pullRequestAi?: PullRequestAiSettings
   /** GitLab project preferences — pinned + recent project paths.
    *  Optional for backward compatibility with profiles saved before
    *  GitLab support; the persistence merge fills the empty default. */
@@ -1907,6 +1912,12 @@ export type CommitMessageAiSettings = {
    *  template has no `{prompt}`, the prompt is piped via stdin. */
   customAgentCommand: string
 }
+
+/** Pull-request detail generation reuses the same option surface as commit
+ *  messages (agent, model, thinking, custom prompt). Kept as a dedicated alias
+ *  so PR settings can diverge from commit-message settings later without
+ *  reworking either type's call sites. */
+export type PullRequestAiSettings = CommitMessageAiSettings
 
 export type GhosttyImportPreview = {
   found: boolean

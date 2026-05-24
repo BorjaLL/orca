@@ -205,6 +205,7 @@ export const GIT_METHODS: RpcMethod[] = [
       }
       if (
         params.commitMessageAi === undefined &&
+        params.pullRequestAi === undefined &&
         params.agentCmdOverrides === undefined &&
         params.enableGitHubAttribution === undefined &&
         params.commitMessageDiscoveryHostKey === undefined
@@ -214,6 +215,9 @@ export const GIT_METHODS: RpcMethod[] = [
       return runtime.generateRuntimePullRequestFields(params.worktree, input, {
         ...(params.commitMessageAi !== undefined
           ? { commitMessageAi: params.commitMessageAi as GlobalSettings['commitMessageAi'] }
+          : {}),
+        ...(params.pullRequestAi !== undefined
+          ? { pullRequestAi: params.pullRequestAi as GlobalSettings['pullRequestAi'] }
           : {}),
         ...(params.agentCmdOverrides !== undefined
           ? {

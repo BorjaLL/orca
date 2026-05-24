@@ -53,6 +53,8 @@ import { FLOATING_WORKSPACE_SEARCH_ENTRIES } from './floating-workspace-search'
 import { GitPane, GIT_PANE_SEARCH_ENTRIES } from './GitPane'
 import { CommitMessageAiPane } from './CommitMessageAiPane'
 import { COMMIT_MESSAGE_AI_PANE_SEARCH_ENTRIES } from './commit-message-ai-search'
+import { PullRequestAiPane } from './PullRequestAiPane'
+import { PULL_REQUEST_AI_PANE_SEARCH_ENTRIES } from './pull-request-ai-search'
 import { NotificationsPane, NOTIFICATIONS_PANE_SEARCH_ENTRIES } from './NotificationsPane'
 import { VoicePane } from './VoicePane'
 import { VOICE_PANE_SEARCH_ENTRIES } from './voice-pane-search'
@@ -268,6 +270,11 @@ function Settings(): React.JSX.Element {
   const [pendingNavRequestTick, setPendingNavRequestTick] = useState(0)
   const [hasUnsavedCommitPromptChanges, setHasUnsavedCommitPromptChanges] = useState(false)
   const [commitPromptDiscardSignal, setCommitPromptDiscardSignal] = useState(0)
+  const [hasUnsavedPullRequestPromptChanges, setHasUnsavedPullRequestPromptChanges] =
+    useState(false)
+  const [pullRequestPromptDiscardSignal, setPullRequestPromptDiscardSignal] = useState(0)
+  const hasUnsavedAiPromptChanges =
+    hasUnsavedCommitPromptChanges || hasUnsavedPullRequestPromptChanges
   const confirm = useConfirmationDialog()
   // Why: the hidden-experimental group is an unlock — Shift-clicking the
   // Experimental sidebar entry reveals it for the remainder of the session.
@@ -282,29 +289,31 @@ function Settings(): React.JSX.Element {
   const repoHooksRequestSeqRef = useRef(0)
   const repoHooksRuntimeIdentityRef = useRef<string>('local')
 
-  const confirmDiscardCommitPromptChanges = useCallback(async (): Promise<boolean> => {
-    if (!hasUnsavedCommitPromptChanges) {
+  const confirmDiscardAiPromptChanges = useCallback(async (): Promise<boolean> => {
+    if (!hasUnsavedAiPromptChanges) {
       return true
     }
     const shouldDiscard = await confirm({
-      title: 'Discard unsaved commit prompt changes?',
-      description: 'You have unsaved AI commit prompt changes. Leaving will discard them.',
+      title: 'Discard unsaved prompt changes?',
+      description: 'You have unsaved AI prompt changes. Leaving will discard them.',
       confirmLabel: 'Discard',
       confirmVariant: 'destructive'
     })
     if (shouldDiscard) {
       setCommitPromptDiscardSignal((signal) => signal + 1)
+      setPullRequestPromptDiscardSignal((signal) => signal + 1)
       setHasUnsavedCommitPromptChanges(false)
+      setHasUnsavedPullRequestPromptChanges(false)
     }
     return shouldDiscard
-  }, [confirm, hasUnsavedCommitPromptChanges])
+  }, [confirm, hasUnsavedAiPromptChanges])
 
   const closeSettingsPageWithPromptGuard = useCallback(async (): Promise<void> => {
-    if (!(await confirmDiscardCommitPromptChanges())) {
+    if (!(await confirmDiscardAiPromptChanges())) {
       return
     }
     closeSettingsPage()
-  }, [closeSettingsPage, confirmDiscardCommitPromptChanges])
+  }, [closeSettingsPage, confirmDiscardAiPromptChanges])
 
   useEffect(() => {
     fetchSettings()
@@ -358,14 +367,14 @@ function Settings(): React.JSX.Element {
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent): void => {
-      if (!hasUnsavedCommitPromptChanges) {
+      if (!hasUnsavedAiPromptChanges) {
         return
       }
       event.preventDefault()
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [hasUnsavedCommitPromptChanges])
+  }, [hasUnsavedAiPromptChanges])
 
   useEffect(() => {
     const handleFindShortcut = (event: KeyboardEvent): void => {
@@ -486,7 +495,11 @@ function Settings(): React.JSX.Element {
         // Why: the AI commit messages pane is rendered inside the Git section,
         // so its search entries belong to Git too — that way a query like
         // "claude" or "thinking" still surfaces the section.
-        searchEntries: [...GIT_PANE_SEARCH_ENTRIES, ...COMMIT_MESSAGE_AI_PANE_SEARCH_ENTRIES],
+        searchEntries: [
+          ...GIT_PANE_SEARCH_ENTRIES,
+          ...COMMIT_MESSAGE_AI_PANE_SEARCH_ENTRIES,
+          ...PULL_REQUEST_AI_PANE_SEARCH_ENTRIES
+        ],
         group: 'workflows'
       },
       {
@@ -680,14 +693,14 @@ function Settings(): React.JSX.Element {
   const visibleNavSections = useMemo(
     () =>
       navSections.filter((section) =>
-        section.id === 'git' && hasUnsavedCommitPromptChanges
+        section.id === 'git' && hasUnsavedAiPromptChanges
           ? true
           : matchesSettingsSearch(settingsSearchQuery, [
               { title: section.title, description: section.description },
               ...section.searchEntries
             ])
       ),
-    [hasUnsavedCommitPromptChanges, navSections, settingsSearchQuery]
+    [hasUnsavedAiPromptChanges, navSections, settingsSearchQuery]
   )
   const visibleSectionIds = useMemo(
     () => new Set(visibleNavSections.map((section) => section.id)),
@@ -902,7 +915,7 @@ function Settings(): React.JSX.Element {
       sectionId: string,
       modifiers?: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }
     ): Promise<void> => {
-      if (sectionId !== activeSectionId && !(await confirmDiscardCommitPromptChanges())) {
+      if (sectionId !== activeSectionId && !(await confirmDiscardAiPromptChanges())) {
         return
       }
       // Why: Shift-clicking the Experimental sidebar entry unlocks a hidden
@@ -927,14 +940,14 @@ function Settings(): React.JSX.Element {
     },
     [
       activeSectionId,
-      confirmDiscardCommitPromptChanges,
+      confirmDiscardAiPromptChanges,
       setSettingsSearchQuery,
       settingsSearchQuery
     ]
   )
 
   const openComputerUseFromBrowser = useCallback(async () => {
-    if (!(await confirmDiscardCommitPromptChanges())) {
+    if (!(await confirmDiscardAiPromptChanges())) {
       return
     }
     pendingNavSectionRef.current = 'computer-use'
@@ -946,7 +959,7 @@ function Settings(): React.JSX.Element {
     // Why: the pending section refs do not schedule a render by themselves.
     // When search is already clear, this reruns the centralized jump effect.
     setPendingNavRequestTick((tick) => tick + 1)
-  }, [confirmDiscardCommitPromptChanges, setSettingsSearchQuery, settingsSearchQuery])
+  }, [confirmDiscardAiPromptChanges, setSettingsSearchQuery, settingsSearchQuery])
 
   if (!settings) {
     return (
@@ -1041,9 +1054,10 @@ function Settings(): React.JSX.Element {
                   description="Branch naming, base refs, attribution, and AI commit messages."
                   searchEntries={[
                     ...GIT_PANE_SEARCH_ENTRIES,
-                    ...COMMIT_MESSAGE_AI_PANE_SEARCH_ENTRIES
+                    ...COMMIT_MESSAGE_AI_PANE_SEARCH_ENTRIES,
+                    ...PULL_REQUEST_AI_PANE_SEARCH_ENTRIES
                   ]}
-                  forceVisible={hasUnsavedCommitPromptChanges}
+                  forceVisible={hasUnsavedAiPromptChanges}
                 >
                   {isSectionMounted('git') ? (
                     <>
@@ -1057,6 +1071,12 @@ function Settings(): React.JSX.Element {
                         updateSettings={updateSettings}
                         onCustomPromptDirtyChange={setHasUnsavedCommitPromptChanges}
                         customPromptDiscardSignal={commitPromptDiscardSignal}
+                      />
+                      <PullRequestAiPane
+                        settings={settings}
+                        updateSettings={updateSettings}
+                        onCustomPromptDirtyChange={setHasUnsavedPullRequestPromptChanges}
+                        customPromptDiscardSignal={pullRequestPromptDiscardSignal}
                       />
                     </>
                   ) : null}

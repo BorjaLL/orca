@@ -49,6 +49,7 @@ import {
   generateCommitMessageFromContext,
   generatePullRequestFieldsFromContext,
   resolveCommitMessageSettings,
+  resolvePullRequestAiSettings,
   type DiscoverCommitMessageModelsResult,
   type GenerateCommitMessageResult,
   type GeneratePullRequestFieldsResult
@@ -61,7 +62,10 @@ import { gitExecFileAsync } from '../git/runner'
 
 export type ResolvedRuntimeGitWorktree = Worktree & { git: GitWorktreeInfo }
 type RuntimeCommitMessageSettingsOverride = Partial<
-  Pick<GlobalSettings, 'commitMessageAi' | 'agentCmdOverrides' | 'enableGitHubAttribution'>
+  Pick<
+    GlobalSettings,
+    'commitMessageAi' | 'pullRequestAi' | 'agentCmdOverrides' | 'enableGitHubAttribution'
+  >
 > & {
   commitMessageDiscoveryHostKey?: string
 }
@@ -453,7 +457,7 @@ export class RuntimeGitCommands {
     const discoveryHostKey =
       settingsOverride?.commitMessageDiscoveryHostKey ??
       getCommitMessageModelDiscoveryHostKey(target.connectionId ?? null)
-    const resolvedSettings = resolveCommitMessageSettings(
+    const resolvedSettings = resolvePullRequestAiSettings(
       {
         ...this.host.getRuntimeSettings(),
         ...settingsOverride

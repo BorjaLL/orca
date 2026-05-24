@@ -13,6 +13,7 @@ import {
   generateCommitMessageFromContext,
   generatePullRequestFieldsFromContext,
   resolveCommitMessageSettings,
+  resolvePullRequestAiSettings,
   trimGeneratedCommitMessage
 } from './commit-message-text-generation'
 
@@ -247,6 +248,105 @@ describe('resolveCommitMessageSettings', () => {
     expect(resolveCommitMessageSettings(settings)).toEqual({
       ok: false,
       error: 'Custom command is empty. Add one in Settings -> Git -> AI Commit Messages.'
+    })
+  })
+})
+
+describe('resolvePullRequestAiSettings', () => {
+  it('falls back to commit-message settings when PR settings are unset', () => {
+    const settings = getDefaultSettings('/tmp')
+    settings.commitMessageAi = {
+      enabled: true,
+      agentId: 'codex',
+      selectedModelByAgent: { codex: 'gpt-5.4-mini' },
+      selectedThinkingByModel: {},
+      customPrompt: 'Use Conventional Commits.',
+      customAgentCommand: ''
+    }
+
+    const result = resolvePullRequestAiSettings(settings)
+
+    expect(result).toMatchObject({
+      ok: true,
+      params: {
+        agentId: 'codex',
+        model: 'gpt-5.4-mini',
+        customPrompt: 'Use Conventional Commits.'
+      }
+    })
+  })
+
+  it('prefers PR settings over commit-message settings when configured', () => {
+    const settings = getDefaultSettings('/tmp')
+    settings.commitMessageAi = {
+      enabled: true,
+      agentId: 'codex',
+      selectedModelByAgent: { codex: 'gpt-5.4-mini' },
+      selectedThinkingByModel: {},
+      customPrompt: 'commit style',
+      customAgentCommand: ''
+    }
+    settings.pullRequestAi = {
+      enabled: true,
+      agentId: 'claude',
+      selectedModelByAgent: { claude: 'sonnet' },
+      selectedThinkingByModel: { sonnet: 'low' },
+      customPrompt: 'PR style',
+      customAgentCommand: ''
+    }
+
+    const result = resolvePullRequestAiSettings(settings)
+
+    expect(result).toMatchObject({
+      ok: true,
+      params: {
+        agentId: 'claude',
+        model: 'sonnet',
+        thinkingLevel: 'low',
+        customPrompt: 'PR style'
+      }
+    })
+  })
+
+  it('reports PR-specific guidance when PR generation is disabled', () => {
+    const settings = getDefaultSettings('/tmp')
+    settings.commitMessageAi = {
+      enabled: true,
+      agentId: 'codex',
+      selectedModelByAgent: {},
+      selectedThinkingByModel: {},
+      customPrompt: '',
+      customAgentCommand: ''
+    }
+    settings.pullRequestAi = {
+      enabled: false,
+      agentId: 'codex',
+      selectedModelByAgent: {},
+      selectedThinkingByModel: {},
+      customPrompt: '',
+      customAgentCommand: ''
+    }
+
+    expect(resolvePullRequestAiSettings(settings)).toEqual({
+      ok: false,
+      error: 'Enable AI pull request details in Settings -> Git.'
+    })
+  })
+
+  it('requires a non-empty custom command for custom agents with PR guidance', () => {
+    const settings = getDefaultSettings('/tmp')
+    settings.pullRequestAi = {
+      enabled: true,
+      agentId: 'custom',
+      selectedModelByAgent: {},
+      selectedThinkingByModel: {},
+      customPrompt: '',
+      customAgentCommand: '   '
+    }
+
+    expect(resolvePullRequestAiSettings(settings)).toEqual({
+      ok: false,
+      error: 'Custom command is empty. Add one in Settings -> Git -> AI Pull Requests.'
     })
   })
 })

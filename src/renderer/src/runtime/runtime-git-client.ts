@@ -33,7 +33,12 @@ export type RuntimeGeneratePullRequestFieldsResult =
   | { success: false; error: string; canceled?: boolean; branchChangedByPreparation?: boolean }
 
 type RuntimeGitSettings = Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> &
-  Partial<Pick<GlobalSettings, 'commitMessageAi' | 'agentCmdOverrides' | 'enableGitHubAttribution'>>
+  Partial<
+    Pick<
+      GlobalSettings,
+      'commitMessageAi' | 'pullRequestAi' | 'agentCmdOverrides' | 'enableGitHubAttribution'
+    >
+  >
 
 type RuntimeDiscoverCommitMessageModelsResult =
   | {
@@ -55,7 +60,10 @@ function getRuntimeCommitMessageSettings(
   settings: RuntimeGitSettings | null | undefined,
   connectionId?: string
 ): Partial<
-  Pick<GlobalSettings, 'commitMessageAi' | 'agentCmdOverrides' | 'enableGitHubAttribution'>
+  Pick<
+    GlobalSettings,
+    'commitMessageAi' | 'pullRequestAi' | 'agentCmdOverrides' | 'enableGitHubAttribution'
+  >
 > & {
   commitMessageDiscoveryHostKey?: string
 } {
@@ -67,6 +75,7 @@ function getRuntimeCommitMessageSettings(
     ...(settings.commitMessageAi !== undefined
       ? { commitMessageAi: settings.commitMessageAi }
       : {}),
+    ...(settings.pullRequestAi !== undefined ? { pullRequestAi: settings.pullRequestAi } : {}),
     ...(settings.agentCmdOverrides !== undefined
       ? { agentCmdOverrides: settings.agentCmdOverrides }
       : {}),

@@ -55,6 +55,7 @@ import {
   generateCommitMessageFromContext,
   generatePullRequestFieldsFromContext,
   resolveCommitMessageSettings,
+  resolvePullRequestAiSettings,
   type DiscoverCommitMessageModelsResult,
   type GenerateCommitMessageResult,
   type GeneratePullRequestFieldsResult
@@ -759,7 +760,7 @@ export function registerFilesystemHandlers(
       }
     ): Promise<GeneratePullRequestFieldsResult> => {
       const discoveryHostKey = getCommitMessageModelDiscoveryHostKey(args.connectionId ?? null)
-      const resolvedSettings = resolveCommitMessageSettings(store.getSettings(), discoveryHostKey)
+      const resolvedSettings = resolvePullRequestAiSettings(store.getSettings(), discoveryHostKey)
       if (!resolvedSettings.ok) {
         return { success: false, error: resolvedSettings.error }
       }
