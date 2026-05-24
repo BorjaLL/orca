@@ -2,8 +2,8 @@
 // model, ranks chunks by cosine similarity, prints file:line locations + a
 // snippet. Run: `node tools/local-models/embeddings/search-repo.mts "where is X handled"`
 
-import { defaultIndexPath, VectorStore } from './vector-store.mts'
 import { repoRootFromCwd } from './code-chunker.mts'
+import { openStore } from './open-store.mts'
 import { createClientFromEnv } from '../local-model-client.mts'
 
 const TOP_K = 8
@@ -18,16 +18,17 @@ async function main(): Promise<void> {
   }
 
   const repoRoot = repoRootFromCwd()
-  const store = new VectorStore(defaultIndexPath(repoRoot))
-  store.load()
+  const store = openStore(repoRoot)
   if (store.size === 0) {
     console.error('No index found. Run build-repo-index.mts first.')
+    store.close()
     process.exitCode = 1
     return
   }
 
   const [queryEmbedding] = await createClientFromEnv().embed(query)
   const hits = store.search(queryEmbedding, TOP_K)
+  store.close()
 
   for (const { chunk, score } of hits) {
     const snippet = chunk.text.split('\n').slice(0, SNIPPET_LINES).join('\n    ')

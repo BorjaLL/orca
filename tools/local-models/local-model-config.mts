@@ -11,6 +11,8 @@ export interface LocalModelConfig {
   chatModel: string
   /** Embedding model tag, e.g. nomic-embed-text. */
   embedModel: string
+  /** Index backend: 'json' (zero deps, default) or 'sqlite' (sqlite-vec). */
+  store: 'json' | 'sqlite'
   /** Per-request timeout. Big prompts on a 32B model can be slow — be generous. */
   requestTimeoutMs: number
 }
@@ -28,6 +30,7 @@ export function loadConfig(): LocalModelConfig {
     // Bump to qwen2.5-coder:32b (~20GB at Q4) when you want stronger output.
     chatModel: env('LOCAL_MODEL_CHAT', 'qwen2.5-coder:7b'),
     embedModel: env('LOCAL_MODEL_EMBED', 'nomic-embed-text'),
+    store: env('LOCAL_MODEL_STORE', 'json') === 'sqlite' ? 'sqlite' : 'json',
     requestTimeoutMs: Number(env('LOCAL_MODEL_TIMEOUT_MS', '120000'))
   }
 }
