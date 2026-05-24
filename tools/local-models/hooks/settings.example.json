@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy the `hooks` block into your Claude Code settings (.claude/settings.json). This runs the local-model diff pre-screen before Claude executes a `git commit`, surfacing its advice without blocking. The matcher fires on Bash; the command no-ops unless there is a staged diff.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/local-models/hooks/prescreen-diff.mts"
+          }
+        ]
+      }
+    ]
+  }
+}
