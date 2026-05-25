@@ -1700,6 +1700,14 @@ function createComputerUsePermissionsApi(): NonNullable<
         openedSettings: false,
         launchedHelper: false,
         nextStep: 'Computer-use permissions are managed on the Orca server.'
+      }),
+    reset: () =>
+      Promise.resolve({
+        platform: getBrowserPlatform(),
+        helperAppPath: null,
+        helperUnavailableReason: 'web_client',
+        bundleId: null,
+        permissions: []
       })
   }
 }
