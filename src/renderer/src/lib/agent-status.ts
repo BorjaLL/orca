@@ -120,6 +120,7 @@ const WELL_KNOWN_LABELS: Record<string, string> = {
   aider: 'Aider',
   pi: 'Pi',
   droid: 'Droid',
+  'command-code': 'Command Code',
   grok: 'Grok',
   hermes: 'Hermes'
 }

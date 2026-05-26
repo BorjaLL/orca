@@ -22,6 +22,7 @@ export type WellKnownAgentType =
   | 'aider'
   | 'pi'
   | 'droid'
+  | 'command-code'
   | 'grok'
   | 'hermes'
   | 'unknown'
