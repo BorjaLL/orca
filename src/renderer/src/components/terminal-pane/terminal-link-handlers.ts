@@ -5,7 +5,7 @@ import {
   resolveTerminalFileLink
 } from '@/lib/terminal-links'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
-import { isRemoteRuntimeFileOperation, runtimePathExists } from '@/runtime/runtime-file-client'
+import { runtimePathExists } from '@/runtime/runtime-file-client'
 import {
   buildCandidateLogicalLinesForBufferPosition,
   dedupeLogicalLines,
@@ -14,7 +14,8 @@ import {
 import {
   getTerminalFileContext,
   isHtmlFilePath,
-  openDetectedFilePath
+  openDetectedFilePath,
+  shouldProbeTerminalFilePathThroughRuntime
 } from './terminal-file-open-routing'
 import {
   buildHardWrappedPathLogicalLineCandidates,
@@ -41,6 +42,18 @@ export type LinkHandlerDeps = {
 type ProvidedFileLink = {
   link: ILink
   logicalLine: WrappedLogicalLine
+}
+
+function resolveRuntimeEnvironmentIdForPane(
+  deps: Pick<LinkHandlerDeps, 'getRuntimeEnvironmentIdForPane' | 'runtimeEnvironmentId'>,
+  paneId: number
+): string | null | undefined {
+  // Why: null is an explicit local-owner signal; undefined means fall back to
+  // the currently active runtime settings.
+  if (deps.getRuntimeEnvironmentIdForPane) {
+    return deps.getRuntimeEnvironmentIdForPane(paneId)
+  }
+  return deps.runtimeEnvironmentId
 }
 
 function rangesOverlap(left: ILink['range'], right: ILink['range']): boolean {
@@ -140,8 +153,7 @@ export function createFilePathLinkProvider(
                 return null
               }
 
-              const runtimeEnvironmentId =
-                deps.getRuntimeEnvironmentIdForPane?.(paneId) ?? deps.runtimeEnvironmentId ?? null
+              const runtimeEnvironmentId = resolveRuntimeEnvironmentIdForPane(deps, paneId)
               const cacheKey = `${runtimeEnvironmentId ?? 'active'}\0${resolved.absolutePath}`
               const cachedExists = pathExistsCache.get(cacheKey)
               const fileContext = getTerminalFileContext(
@@ -151,9 +163,8 @@ export function createFilePathLinkProvider(
               )
               const exists =
                 cachedExists ??
-                (fileContext.connectionId ||
-                isRemoteRuntimeFileOperation(fileContext, resolved.absolutePath)
-                  ? await runtimePathExists(fileContext, resolved.absolutePath)
+                (shouldProbeTerminalFilePathThroughRuntime(fileContext)
+                  ? await runtimePathExists(fileContext, resolved.absolutePath).catch(() => false)
                   : await window.api.shell.pathExists(resolved.absolutePath))
               pathExistsCache.set(cacheKey, exists)
               if (!exists) {
@@ -262,8 +273,7 @@ export function installFilePathLinkClickFallback(
     if (!position) {
       return
     }
-    const runtimeEnvironmentId =
-      deps.getRuntimeEnvironmentIdForPane?.(paneId) ?? deps.runtimeEnvironmentId ?? null
+    const runtimeEnvironmentId = resolveRuntimeEnvironmentIdForPane(deps, paneId)
     // Why: xterm can show a wrapped provider link as active while still missing
     // activation for the clicked wrapped row. Always retry file-path hit testing
     // on modifier mouseup; openDetectedFilePath coalesces duplicate opens.

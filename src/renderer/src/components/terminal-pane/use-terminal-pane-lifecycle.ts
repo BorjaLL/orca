@@ -17,8 +17,10 @@ import {
   resolveFilePathLinkAtBufferPosition,
   type TerminalFileLinkResolver
 } from './terminal-file-link-hit-testing'
-import { getTerminalFileContext } from './terminal-file-open-routing'
-import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-client'
+import {
+  getTerminalFileContext,
+  isTerminalFilePathLocalToClient
+} from './terminal-file-open-routing'
 import { handleOscLink } from './terminal-osc-link-routing'
 import { installHttpLinkClickFallback } from './terminal-url-link-hit-testing'
 import type {
@@ -432,9 +434,7 @@ export function useTerminalPaneLifecycle({
         return null
       }
       const fileContext = getTerminalFileContext(worktreeId, worktreePath, runtimeEnvironmentId)
-      const isLocal =
-        !fileContext.connectionId &&
-        !isRemoteRuntimeFileOperation(fileContext, resolved.absolutePath)
+      const isLocal = isTerminalFilePathLocalToClient(fileContext, resolved.absolutePath)
       return { ...resolved, isLocal, runtimeEnvironmentId }
     }
     let resizeRaf: number | null = null
