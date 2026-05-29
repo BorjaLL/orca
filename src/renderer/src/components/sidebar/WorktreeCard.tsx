@@ -491,6 +491,7 @@ const WorktreeCard = React.memo(function WorktreeCard({
   const metaLinearIssue = showLinearIssue ? linearIssueDisplay : null
   const metaReview = showPR ? prDisplay : null
   const metaComment = showComment ? worktree.comment : null
+  const inlineCommentPreview = metaComment?.trim().replace(/\s+/g, ' ') ?? ''
   const handleOpenGitHubIssueInOrca = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
@@ -862,10 +863,10 @@ const WorktreeCard = React.memo(function WorktreeCard({
              truncated line keeps the row a fixed height regardless of
              comment length — avoiding the variable-height virtualizer jank
              that led to the revert of #431 (commit 474db0ef). */}
-        {metaComment && metaComment.trim().length > 0 && (
+        {inlineCommentPreview.length > 0 && (
           <div className="flex min-w-0 items-center gap-1 text-[11px] leading-none text-muted-foreground">
-            <StickyNote className="size-2.5 shrink-0 text-muted-foreground/70" />
-            <span className="min-w-0 truncate">{metaComment.trim().replace(/\s+/g, ' ')}</span>
+            <StickyNote aria-hidden="true" className="size-2.5 shrink-0 text-muted-foreground/70" />
+            <span className="min-w-0 truncate">{inlineCommentPreview}</span>
           </div>
         )}
 
