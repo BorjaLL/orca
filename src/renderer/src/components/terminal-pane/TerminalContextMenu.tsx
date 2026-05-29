@@ -1,7 +1,11 @@
 import {
   Clipboard,
+  ClipboardCopy,
   Copy,
   Eraser,
+  ExternalLink,
+  FileText,
+  FolderOpen,
   Maximize2,
   Minimize2,
   PanelBottomClose,
@@ -27,6 +31,8 @@ import {
 import { shouldIgnoreTerminalMenuPointerDownOutside } from './terminal-context-menu-dismiss'
 import type { TerminalQuickCommand } from '../../../../shared/types'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
+import type { TerminalFileLinkMenuTarget } from './terminal-file-link-hit-testing'
+import { revealInFileManagerLabel } from '@/lib/reveal-in-file-manager-label'
 
 type TerminalContextMenuProps = {
   open: boolean
@@ -36,6 +42,11 @@ type TerminalContextMenuProps = {
   canClosePane: boolean
   canExpandPane: boolean
   menuPaneIsExpanded: boolean
+  menuLink: TerminalFileLinkMenuTarget | null
+  onOpenLink: () => void
+  onRevealLink: () => void
+  onOpenLinkExternally: () => void
+  onCopyLinkPath: () => void
   onCopy: () => void
   onPaste: () => void
   onSplitRight: () => void
@@ -61,6 +72,11 @@ export default function TerminalContextMenu({
   canClosePane,
   canExpandPane,
   menuPaneIsExpanded,
+  menuLink,
+  onOpenLink,
+  onRevealLink,
+  onOpenLinkExternally,
+  onCopyLinkPath,
   onCopy,
   onPaste,
   onSplitRight,
@@ -131,6 +147,34 @@ export default function TerminalContextMenu({
           }
         }}
       >
+        {menuLink ? (
+          <>
+            <DropdownMenuLabel className="truncate">
+              {menuLink.absolutePath.split(/[/\\]/).pop() || menuLink.absolutePath}
+            </DropdownMenuLabel>
+            <DropdownMenuItem onSelect={onOpenLink}>
+              <FileText />
+              Open
+            </DropdownMenuItem>
+            {menuLink.isLocal ? (
+              <>
+                <DropdownMenuItem onSelect={onOpenLinkExternally}>
+                  <ExternalLink />
+                  Open with Default App
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onRevealLink}>
+                  <FolderOpen />
+                  {revealInFileManagerLabel}
+                </DropdownMenuItem>
+              </>
+            ) : null}
+            <DropdownMenuItem onSelect={onCopyLinkPath}>
+              <ClipboardCopy />
+              Copy Path
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
         <DropdownMenuItem onSelect={onCopy}>
           <Copy />
           Copy

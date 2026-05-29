@@ -11,6 +11,7 @@ import {
   openFilePathLinkAtBufferPosition,
   openDetectedFilePath
 } from './terminal-link-handlers'
+import { resolveFilePathLinkAtBufferPosition } from './terminal-file-link-hit-testing'
 import { handleOscLink } from './terminal-osc-link-routing'
 import { installHttpLinkClickFallback } from './terminal-url-link-hit-testing'
 import { registerHttpLinkStoreAccessor } from '@/lib/http-link-routing'
@@ -773,6 +774,42 @@ describe('createFilePathLinkProvider range bounds', () => {
     expect(openFileMock).toHaveBeenCalledWith(
       expect.objectContaining({ filePath: '/tmp/package.json' })
     )
+  })
+
+  it('resolveFilePathLinkAtBufferPosition returns the resolved path without opening', () => {
+    setPlatform('Macintosh')
+    const resolved = resolveFilePathLinkAtBufferPosition(
+      makeBuffer([makeBufferLine('src/report.docx')]),
+      { x: 4, y: 1 },
+      80,
+      {
+        startupCwd: '/tmp',
+        worktreeId: 'wt-1',
+        worktreePath: '/tmp',
+        runtimeEnvironmentId: null
+      }
+    )
+
+    expect(resolved).toEqual({ absolutePath: '/tmp/src/report.docx', line: null, column: null })
+    // Why: resolving for the context menu must not trigger an open.
+    expect(openFileMock).not.toHaveBeenCalled()
+  })
+
+  it('resolveFilePathLinkAtBufferPosition returns null when the position is off any link', () => {
+    setPlatform('Macintosh')
+    const resolved = resolveFilePathLinkAtBufferPosition(
+      makeBuffer([makeBufferLine('just some prose with no path')]),
+      { x: 4, y: 1 },
+      80,
+      {
+        startupCwd: '/tmp',
+        worktreeId: 'wt-1',
+        worktreePath: '/tmp',
+        runtimeEnvironmentId: null
+      }
+    )
+
+    expect(resolved).toBeNull()
   })
 
   it('opens a tilde-prefixed path from a direct modifier-click fallback', async () => {

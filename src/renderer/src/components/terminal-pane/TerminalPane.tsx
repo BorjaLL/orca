@@ -39,6 +39,7 @@ import { useSystemPrefersDark } from './use-system-prefers-dark'
 import { useTerminalPaneGlobalEffects } from './use-terminal-pane-global-effects'
 import { useTerminalPaneLifecycle } from './use-terminal-pane-lifecycle'
 import { useTerminalPaneContextMenu } from './use-terminal-pane-context-menu'
+import type { TerminalFileLinkResolver } from './terminal-file-link-hit-testing'
 import { useNotificationDispatch } from './use-notification-dispatch'
 import { connectPanePty } from './pty-connection'
 import { shouldPreserveTerminalScrollbackBuffers } from '../../../../shared/workspace-session-terminal-buffers'
@@ -671,6 +672,11 @@ export default function TerminalPane({
     setCloseConfirmPaneId(null)
   }, [closeConfirmPaneId, executeClosePane])
 
+  // Why: the link effect (in useTerminalPaneLifecycle) owns the link deps; it
+  // publishes a resolver here so the context menu can resolve the file link
+  // under a right-click without re-deriving cwd/home/runtime context.
+  const fileLinkResolverRef = useRef<TerminalFileLinkResolver | null>(null)
+
   useTerminalPaneLifecycle({
     tabId,
     worktreeId,
@@ -722,7 +728,8 @@ export default function TerminalPane({
     setPaneTitles,
     paneTitlesRef,
     setRenamingPaneId,
-    setPaneCount
+    setPaneCount,
+    fileLinkResolverRef
   })
 
   useEffect(() => {
@@ -1490,7 +1497,8 @@ export default function TerminalPane({
     onRequestClosePane: handleRequestClosePane,
     onSetTitle: handleStartRename,
     onPasteError: setTerminalError,
-    rightClickToPaste
+    rightClickToPaste,
+    fileLinkResolverRef
   })
 
   const terminalShouldHandleMiddleClick = useCallback(
@@ -1684,6 +1692,11 @@ export default function TerminalPane({
         menuPaneIsExpanded={
           contextMenu.menuPaneId !== null && contextMenu.menuPaneId === expandedPaneId
         }
+        menuLink={contextMenu.menuLink}
+        onOpenLink={contextMenu.onOpenLink}
+        onRevealLink={contextMenu.onRevealLink}
+        onOpenLinkExternally={contextMenu.onOpenLinkExternally}
+        onCopyLinkPath={() => void contextMenu.onCopyLinkPath()}
         onCopy={() => void contextMenu.onCopy()}
         onPaste={() => void contextMenu.onPaste()}
         onSplitRight={contextMenu.onSplitRight}

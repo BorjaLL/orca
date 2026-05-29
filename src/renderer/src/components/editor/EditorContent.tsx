@@ -11,6 +11,7 @@ import { joinPath } from '@/lib/path'
 import { useAppStore } from '@/store'
 import { Button } from '@/components/ui/button'
 import { ChangesModeView } from './ChangesModeView'
+import UnrenderableBinaryFileNotice from './UnrenderableBinaryFileNotice'
 import {
   ConflictBanner,
   ConflictPlaceholderView,
@@ -497,9 +498,11 @@ export function EditorContent({
       }
       return (
         <div className={className}>
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Binary file — cannot display
-          </div>
+          <UnrenderableBinaryFileNotice
+            filePath={contentFile.filePath}
+            worktreeId={contentFile.worktreeId}
+            runtimeEnvironmentId={contentFile.runtimeEnvironmentId}
+          />
         </div>
       )
     }
@@ -705,9 +708,11 @@ export function EditorContent({
         )
       }
       return (
-        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-          Binary file — cannot display
-        </div>
+        <UnrenderableBinaryFileNotice
+          filePath={activeFile.filePath}
+          worktreeId={activeFile.worktreeId}
+          runtimeEnvironmentId={activeFile.runtimeEnvironmentId}
+        />
       )
     }
     if (isChangesMode) {
