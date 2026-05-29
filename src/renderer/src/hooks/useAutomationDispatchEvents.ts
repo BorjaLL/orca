@@ -6,6 +6,7 @@ import { launchAgentBackgroundSession } from '@/lib/launch-agent-background-sess
 import { submitPromptToAgentTab } from '@/lib/agent-paste-draft'
 import { findReusableAutomationSession } from '@/lib/automation-session-reuse'
 import { observeExistingAutomationSession } from '@/lib/automation-session-observer'
+import { closeWebRuntimeTerminal } from '@/runtime/web-runtime-session'
 import { useAppStore } from '@/store'
 import type { AutomationDispatchResult } from '../../../shared/automations-types'
 import { parsePaneKey } from '../../../shared/stable-pane-id'
@@ -48,6 +49,30 @@ export function useAutomationDispatchEvents(): void {
         activeWorktreeId: state.activeWorktreeId,
         activeTabId: state.activeTabId,
         activeTabType: state.activeTabType
+      }
+      // Why: only the tab we spawn in the background for this run is ours to
+      // reap — reused sessions belong to the user and must never be closed.
+      // Declared at handler scope so the dispatch-failure catch can reap it too.
+      let launchedBackgroundSession: { tabId: string; ptyId: string } | null = null
+      const closeBackgroundAutomationTab = (): void => {
+        const session = launchedBackgroundSession
+        if (!session) {
+          return
+        }
+        launchedBackgroundSession = null
+        const store = useAppStore.getState()
+        // Why: don't yank an automation tab the user opened and is watching;
+        // they can close it themselves.
+        if (store.activeTabId === session.tabId) {
+          return
+        }
+        // Why: a hidden background tab never mounts a TerminalPane, so closeTab
+        // alone won't reap its PTY. Kill the live session first (runtime-aware:
+        // remote-runtime PTYs aren't reachable via pty.kill), then drop the tab.
+        if (!closeWebRuntimeTerminal(session.ptyId)) {
+          void window.api.pty.kill(session.ptyId)
+        }
+        store.closeTab(session.tabId, { recordInteraction: false })
       }
       const repo = state.repos.find((entry) => entry.id === automation.projectId)
       const automationWorktree = automation.workspaceId
@@ -172,10 +197,11 @@ export function useAutomationDispatchEvents(): void {
             outputSnapshot: getOutputSnapshot(),
             error: null
           })
+          closeBackgroundAutomationTab()
         }
-        const markExitResult = (code: number): Promise<void> => {
+        const markExitResult = async (code: number): Promise<void> => {
           cleanupRunObservers()
-          return markDispatchResult({
+          await markDispatchResult({
             runId: run.id,
             status: code === 0 ? 'completed' : 'dispatch_failed',
             workspaceId: worktree.id,
@@ -183,6 +209,7 @@ export function useAutomationDispatchEvents(): void {
             outputSnapshot: getOutputSnapshot(),
             error: code === 0 ? null : `Automation process exited with code ${code}.`
           })
+          closeBackgroundAutomationTab()
         }
         const handleAgentDone = (): void => {
           if (completionMarked) {
@@ -338,6 +365,9 @@ export function useAutomationDispatchEvents(): void {
         if (!result) {
           throw new Error('Unable to build an agent launch plan.')
         }
+        // Why: this hidden tab/PTY is launched solely to run the automation; on
+        // completion it must be closed or it leaks for the app's lifetime.
+        launchedBackgroundSession = { tabId: result.tabId, ptyId: result.ptyId }
         observeAgentStatus(result.tabId, dispatchStartedAt)
         try {
           await markDispatchResult({
@@ -373,6 +403,9 @@ export function useAutomationDispatchEvents(): void {
           currentState.setActiveTabType(focusBeforeDispatch.activeTabType)
         }
       } catch (error) {
+        // Why: a launch that succeeded before a later step threw still leaves a
+        // hidden tab/PTY behind — reap it so failed dispatches don't leak either.
+        closeBackgroundAutomationTab()
         await markDispatchResult({
           runId: run.id,
           status: 'dispatch_failed',
