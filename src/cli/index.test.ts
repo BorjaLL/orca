@@ -411,8 +411,45 @@ describe('orca cli worktree awareness', () => {
       displayName: undefined,
       linkedIssue: undefined,
       comment: undefined,
+      workspaceStatus: undefined,
       parentWorktree: undefined,
       noParent: true
+    })
+  })
+
+  it('passes workspace status through worktree.set', async () => {
+    queueFixtures(
+      callMock,
+      okFixture('req_set_status', {
+        worktree: {
+          ...buildWorktree('/tmp/repo/child', 'feature/child'),
+          workspaceStatus: 'in-review'
+        }
+      })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await main(
+      [
+        'worktree',
+        'set',
+        '--worktree',
+        'id:repo::/tmp/repo/child',
+        '--workspace-status',
+        'in-review',
+        '--json'
+      ],
+      '/tmp/repo'
+    )
+
+    expect(callMock).toHaveBeenCalledWith('worktree.set', {
+      worktree: 'id:repo::/tmp/repo/child',
+      displayName: undefined,
+      linkedIssue: undefined,
+      comment: undefined,
+      workspaceStatus: 'in-review',
+      parentWorktree: undefined,
+      noParent: false
     })
   })
 
