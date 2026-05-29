@@ -1780,6 +1780,11 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           .filter(([, worktrees]) => worktrees.length > 0)
           .map(([repoId]) => repoId)
       )
+      const repoIdsWithAuthoritativeDetectedWorktrees = new Set(
+        Object.entries(s.detectedWorktreesByRepo)
+          .filter(([, detected]) => detected.authoritative)
+          .map(([repoId]) => repoId)
+      )
       // Why: the Floating Workspace is intentionally not a repo worktree, but
       // its tabs still use the normal terminal session pipeline so daemon PTYs
       // can survive app restart just like workspace terminals.
@@ -1789,7 +1794,11 @@ export const createTerminalSlice: StateCreator<AppState, [], [], TerminalSlice> 
           const repoId = getRepoIdFromWorktreeId(worktreeId)
           // Why (#1158): an empty/missing list can mean degraded hydration; a
           // non-empty repo list is authoritative for deleted-worktree cleanup.
-          if (knownRepoIds.has(repoId) && !repoIdsWithLoadedWorktrees.has(repoId)) {
+          if (
+            knownRepoIds.has(repoId) &&
+            !repoIdsWithLoadedWorktrees.has(repoId) &&
+            !repoIdsWithAuthoritativeDetectedWorktrees.has(repoId)
+          ) {
             validWorktreeIds.add(worktreeId)
           }
         }
