@@ -21,6 +21,16 @@ export function SlugDialogBody({
   const { owner, repo, number, type, cacheKey } = projectOrigin
   const patchProjectIssueOrPr = useAppStore((s) => s.patchProjectIssueOrPr)
   const projectViewCache = useAppStore((s) => s.projectViewCache)
+  const activeRepo = useAppStore((s) =>
+    s.activeRepoId ? (s.repos.find((candidate) => candidate.id === s.activeRepoId) ?? null) : null
+  )
+  const repoTarget = useMemo(
+    () =>
+      activeRepo
+        ? { repoPath: activeRepo.path, connectionId: activeRepo.connectionId ?? null }
+        : {},
+    [activeRepo]
+  )
 
   // Why: the Project row is the source of truth for the list-side columns;
   // reading it reactively here keeps the dialog in sync with optimistic
@@ -51,7 +61,7 @@ export function SlugDialogBody({
     setError(null)
     setDetails(null)
     window.api.gh
-      .projectWorkItemDetailsBySlug({ owner, repo, number, type })
+      .projectWorkItemDetailsBySlug({ ...repoTarget, owner, repo, number, type })
       .then((res) => {
         if (rid !== requestIdRef.current) {
           return
@@ -74,7 +84,7 @@ export function SlugDialogBody({
         }
         setLoading(false)
       })
-  }, [owner, repo, number, type])
+  }, [owner, repo, number, type, repoTarget])
 
   const title = row?.content.title ?? details?.item.title ?? ''
   const url = row?.content.url ?? details?.item.url ?? null

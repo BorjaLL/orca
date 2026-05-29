@@ -85,8 +85,8 @@ export default function ProjectViewWrapper(_props: Props = {} as Props): React.J
   const activeProject = settings?.githubProjects?.activeProject ?? null
   // Why (issue #1715): pass the active repo as a gh-host hint to all
   // project-related gh calls (picker, project view fetch, mutations). gh
-  // infers the host from the git remote when invoked with cwd:repoPath;
-  // without this, GHES users hit github.com and see misleading scope errors.
+  // resolves the API host from that repo's git remote; without this, GHES
+  // users hit github.com and see misleading scope errors.
   const activeRepoTarget = useMemo<GitHubRepoTarget>(() => {
     const repo = activeRepoId ? repos.find((r) => r.id === activeRepoId) : null
     if (!repo) {
@@ -184,7 +184,8 @@ export default function ProjectViewWrapper(_props: Props = {} as Props): React.J
       activeProject.owner,
       activeProject.number,
       viewId,
-      queryOverride
+      queryOverride,
+      activeRepoTarget
     )
     if (projectViewCache[cacheKey]?.data) {
       return
@@ -199,7 +200,14 @@ export default function ProjectViewWrapper(_props: Props = {} as Props): React.J
       false,
       queryOverride
     )
-  }, [activeProject, lastViewByProject, projectViewCache, doFetch, appliedQueryByView])
+  }, [
+    activeProject,
+    lastViewByProject,
+    projectViewCache,
+    doFetch,
+    appliedQueryByView,
+    activeRepoTarget
+  ])
 
   // Load the project's view list whenever the active project changes so the
   // tab strip can render. The list is small and rarely changes — fetched once
@@ -316,9 +324,10 @@ export default function ProjectViewWrapper(_props: Props = {} as Props): React.J
       activeProject.owner,
       activeProject.number,
       viewId,
-      currentAppliedOverride
+      currentAppliedOverride,
+      activeRepoTarget
     )
-  }, [activeProject, lastViewByProject, currentAppliedOverride])
+  }, [activeProject, lastViewByProject, currentAppliedOverride, activeRepoTarget])
 
   const table: GitHubProjectTable | null = currentCacheKey
     ? (projectViewCache[currentCacheKey]?.data ?? null)

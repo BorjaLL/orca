@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import { Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -7,6 +7,7 @@ import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-cl
 import { useAppStore } from '@/store'
 import type { PRComment } from '../../../../../shared/types'
 import type {
+  GitHubRepoTarget,
   GitHubProjectCommentMutationResult,
   GitHubProjectMutationResult
 } from '../../../../../shared/github-project-types'
@@ -14,6 +15,19 @@ import type {
 function getRuntimeTarget() {
   const target = getActiveRuntimeTarget(useAppStore.getState().settings)
   return target.kind === 'environment' ? target : null
+}
+
+function useActiveRepoTarget(): GitHubRepoTarget {
+  const activeRepo = useAppStore((s) =>
+    s.activeRepoId ? (s.repos.find((repo) => repo.id === s.activeRepoId) ?? null) : null
+  )
+  return useMemo(
+    () =>
+      activeRepo
+        ? { repoPath: activeRepo.path, connectionId: activeRepo.connectionId ?? null }
+        : {},
+    [activeRepo]
+  )
 }
 
 export function CommentsList({
@@ -27,6 +41,7 @@ export function CommentsList({
   comments: PRComment[]
   onChange: (next: PRComment[]) => void
 }): React.JSX.Element {
+  const repoTarget = useActiveRepoTarget()
   return (
     <div className="flex flex-col gap-3">
       {comments.length === 0 ? (
@@ -41,6 +56,7 @@ export function CommentsList({
             onDelete={async () => {
               const target = getRuntimeTarget()
               const args = {
+                ...repoTarget,
                 owner,
                 repo,
                 commentId: c.id
@@ -62,6 +78,7 @@ export function CommentsList({
             onEdit={async (next) => {
               const target = getRuntimeTarget()
               const args = {
+                ...repoTarget,
                 owner,
                 repo,
                 commentId: c.id,
@@ -164,6 +181,7 @@ export function NewCommentForm({
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const repoTarget = useActiveRepoTarget()
   return (
     <div className="flex flex-col gap-2">
       <textarea
@@ -184,7 +202,7 @@ export function NewCommentForm({
             setSubmitting(true)
             try {
               const target = getRuntimeTarget()
-              const args = { owner, repo, number, body }
+              const args = { ...repoTarget, owner, repo, number, body }
               const res = target
                 ? await callRuntimeRpc<GitHubProjectCommentMutationResult>(
                     target,

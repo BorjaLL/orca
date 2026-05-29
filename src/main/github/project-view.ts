@@ -19,7 +19,8 @@ import {
   isValidOwnerSlug,
   assertSlug,
   assertPositiveInt,
-  targetToCwd,
+  targetToGhApiRoute,
+  type GhApiRoute,
   type GhGraphqlErrorShape,
   type GraphqlVars
 } from './project-view/internals'
@@ -538,7 +539,7 @@ async function fetchProjectViewsPage(
     projectNumber: number
     after: string | null
   },
-  cwd: string | undefined
+  route: GhApiRoute
 ): Promise<
   | {
       ok: true
@@ -583,7 +584,7 @@ async function fetchProjectViewsPage(
   const res = await runGraphql<Record<string, { projectV2?: RawProjectConfig | null } | null>>(
     query,
     vars,
-    cwd
+    route
   )
   if (!res.ok) {
     return res
@@ -607,7 +608,7 @@ async function fetchProjectViewsPage(
 async function fetchViewFieldsContinuation(
   viewId: string,
   after: string,
-  cwd: string | undefined
+  route: GhApiRoute
 ): Promise<
   { ok: true; fields: RawProjectV2Field[] } | { ok: false; error: GitHubProjectViewError }
 > {
@@ -643,7 +644,7 @@ async function fetchViewFieldsContinuation(
           nodes?: (RawProjectV2Field | null)[]
         }
       } | null
-    }>(query, { viewId, after: cursor }, cwd)
+    }>(query, { viewId, after: cursor }, route)
     if (!res.ok) {
       return res
     }
@@ -755,7 +756,7 @@ async function fetchItemsPageWithRaw(
     after: string | null
     includeParent: boolean
   },
-  cwd: string | undefined
+  route: GhApiRoute
 ): Promise<
   | { ok: true; page: RawItemsPage }
   | {
@@ -788,7 +789,13 @@ async function fetchItemsPageWithRaw(
     }
     ${FIELD_CONFIG_FRAGMENT}
   `
-  const argsArr: string[] = ['api', 'graphql', '-f', `query=${query}`]
+  const argsArr: string[] = [
+    'api',
+    ...(route.hostname ? ['--hostname', route.hostname] : []),
+    'graphql',
+    '-f',
+    `query=${query}`
+  ]
   argsArr.push('-f', `owner=${args.owner}`)
   argsArr.push('-F', `num=${args.projectNumber}`)
   argsArr.push('-f', `q=${args.query}`)
@@ -815,7 +822,7 @@ async function fetchItemsPageWithRaw(
     try {
       const r = await ghExecFileAsync(argsArr, {
         encoding: 'utf-8',
-        ...(cwd ? { cwd } : {})
+        ...(route.cwd ? { cwd: route.cwd } : {})
       })
       stdout = r.stdout
       stderr = r.stderr
@@ -889,7 +896,7 @@ async function fetchAllItems(
     projectNumber: number
     query: string
   },
-  cwd: string | undefined
+  route: GhApiRoute
 ): Promise<
   | { ok: true; rows: GitHubProjectRow[]; totalCount: number; parentFieldDropped: boolean }
   | { ok: false; error: GitHubProjectViewError; totalCount?: number }
@@ -934,7 +941,7 @@ async function fetchAllItems(
             after: null,
             includeParent: true
           },
-          cwd
+          route
         )
         // Why: flip parentFieldRetriedByOwner BEFORE resolveProbe()/clearing
         // parentFieldProbeInFlight so siblings that awoke on `inFlight.catch()`
@@ -963,7 +970,7 @@ async function fetchAllItems(
         after: null,
         includeParent
       },
-      cwd
+      route
     )
   }
   if (!first.ok && includeParent && errorsIndicateParentField(first.rawErrors, first.stderr)) {
@@ -989,7 +996,7 @@ async function fetchAllItems(
         after: null,
         includeParent: false
       },
-      cwd
+      route
     )
   }
   if (!first.ok) {
@@ -1059,7 +1066,7 @@ async function fetchAllItems(
         after: cursor as string,
         includeParent
       },
-      cwd
+      route
     )
     if (!next.ok) {
       return { ok: false, error: next.error, totalCount }
@@ -1100,7 +1107,7 @@ async function fetchItemsCountOnly(
     projectNumber: number
     query: string
   },
-  cwd: string | undefined
+  route: GhApiRoute
 ): Promise<number | null> {
   const root = ownerQueryRoot(args.ownerType)
   const query = `
@@ -1114,7 +1121,7 @@ async function fetchItemsCountOnly(
   `
   const res = await runGraphql<
     Record<string, { projectV2?: { items?: { totalCount?: number } | null } | null } | null>
-  >(query, { owner: args.owner, num: args.projectNumber, q: args.query }, cwd)
+  >(query, { owner: args.owner, num: args.projectNumber, q: args.query }, route)
   if (!res.ok) {
     return null
   }
@@ -1141,7 +1148,7 @@ export async function getProjectViewTable(
       error: { type: 'validation_error', message: 'Invalid ownerType.' }
     }
   }
-  const ghCwd = targetToCwd(args)
+  const ghRoute = await targetToGhApiRoute(args)
 
   // Paginate views until a match is found.
   let cursor: string | null = null
@@ -1157,7 +1164,7 @@ export async function getProjectViewTable(
         projectNumber: args.projectNumber,
         after: cursor
       },
-      ghCwd
+      ghRoute
     )
     if (!page.ok) {
       return { ok: false, error: page.error }
@@ -1213,7 +1220,7 @@ export async function getProjectViewTable(
   let extraFields: RawProjectV2Field[] = []
   const fieldsPi = selectedRaw.fields?.pageInfo
   if (fieldsPi?.hasNextPage === true && typeof fieldsPi.endCursor === 'string' && selectedRaw.id) {
-    const cont = await fetchViewFieldsContinuation(selectedRaw.id, fieldsPi.endCursor, ghCwd)
+    const cont = await fetchViewFieldsContinuation(selectedRaw.id, fieldsPi.endCursor, ghRoute)
     if (!cont.ok) {
       return { ok: false, error: cont.error }
     }
@@ -1243,7 +1250,7 @@ export async function getProjectViewTable(
         projectNumber: args.projectNumber,
         query: effectiveQuery
       },
-      ghCwd
+      ghRoute
     )
     return {
       ok: false,
@@ -1263,7 +1270,7 @@ export async function getProjectViewTable(
       projectNumber: args.projectNumber,
       query: effectiveQuery
     },
-    ghCwd
+    ghRoute
   )
   if (!items.ok) {
     return {
@@ -1321,7 +1328,7 @@ type RawViewerDiscovery = {
 export async function listAccessibleProjects(
   args: ListAccessibleProjectsArgs = {}
 ): Promise<ListAccessibleProjectsResult> {
-  const ghCwd = targetToCwd(args)
+  const ghRoute = await targetToGhApiRoute(args)
   const viewerProjects: GitHubProjectSummary[] = []
   const orgProjects: GitHubProjectSummary[] = []
   // Why: per-org failures are collected so the picker can render a "some orgs
@@ -1356,7 +1363,7 @@ export async function listAccessibleProjects(
     if (viewerCursor) {
       vars.after = viewerCursor
     }
-    const res = await runGraphql<RawViewerDiscovery>(query, vars, ghCwd)
+    const res = await runGraphql<RawViewerDiscovery>(query, vars, ghRoute)
     if (!res.ok) {
       // Why: a viewer-level failure is structural — if we can't list the
       // user's own projects, we have nothing to build on. Propagate as a
@@ -1431,7 +1438,7 @@ export async function listAccessibleProjects(
     if (orgCursor) {
       vars.orgAfter = orgCursor
     }
-    const res = await runGraphql<RawViewerDiscovery>(query, vars, ghCwd)
+    const res = await runGraphql<RawViewerDiscovery>(query, vars, ghRoute)
     if (!res.ok) {
       // Why: the org-listing query itself failed (not a nested projectsV2).
       // Record it as a partial failure against a synthetic `*` owner so the
@@ -1506,16 +1513,13 @@ export function parseProjectPaste(input: string): ParsedPaste | null {
   }
   // URL forms — Why (issue #1715): accept any host so GHES project URLs (e.g.
   // https://ghe.example.com/orgs/foo/projects/3) parse. The host is captured
-  // so callers can route gh against the right server; gh itself resolves the
-  // host from the local repo's git remote (cwd:repoPath), but having the
-  // parsed host on hand keeps the parser useful for future host-aware checks.
+  // so callers can route gh against the right server with `gh api --hostname`.
   const urlRe = /^https?:\/\/([^/\s]+)\/(orgs|users)\/([^/]+)\/projects\/(\d+)(?:\/views\/(\d+))?/i
   const m = trimmed.match(urlRe)
   if (m) {
-    const [, host, kindSeg, owner, nStr, vStr] = m
-    // Why: require a dot to reject obvious non-hosts like `localhost-typo`
-    // pasted by mistake; legitimate GitHub Enterprise hosts always have one.
-    if (!host.includes('.')) {
+    const [, rawHost, kindSeg, owner, nStr, vStr] = m
+    const host = normalizeProjectUrlHost(rawHost)
+    if (!host) {
       return null
     }
     const number = parseInt(nStr, 10)
@@ -1549,10 +1553,15 @@ export function parseProjectPaste(input: string): ParsedPaste | null {
   return null
 }
 
+function normalizeProjectUrlHost(host: string): string | null {
+  const normalized = host.trim().toLowerCase()
+  return /^[a-z0-9.-]+(?::[0-9]+)?$/.test(normalized) ? normalized : null
+}
+
 async function resolveOwnerType(
   owner: string,
   preferred: GitHubProjectOwnerType | null,
-  cwd: string | undefined
+  route: GhApiRoute
 ): Promise<
   | { ok: true; ownerType: GitHubProjectOwnerType; title: string }
   | { ok: false; error: GitHubProjectViewError }
@@ -1580,7 +1589,7 @@ async function resolveOwnerType(
     }
     const res = await runGraphql<
       Record<string, { projectV2?: { id?: string; title?: string } | null; login?: string } | null>
-    >(query, vars, cwd)
+    >(query, vars, route)
     if (!res.ok) {
       return { ok: false, error: res.error }
     }
@@ -1653,9 +1662,16 @@ export async function resolveProjectRef(
   }
   const preferred: GitHubProjectOwnerType | null =
     parsed.kind === 'org' ? 'organization' : parsed.kind === 'user' ? 'user' : null
-  const ghCwd = targetToCwd(args)
+  const baseRoute = await targetToGhApiRoute(args)
+  // Why: pasted project URLs carry an explicit host. Prefer that over the
+  // active repo hint so users can paste a GHES URL even when the active repo
+  // context is absent or points at another GitHub host.
+  const ghRoute =
+    parsed.kind === 'bare'
+      ? baseRoute
+      : { ...baseRoute, hostname: parsed.host.trim().toLowerCase() }
   // Verify by fetching project title.
-  const ownerRes = await resolveOwnerType(parsed.owner, preferred, ghCwd)
+  const ownerRes = await resolveOwnerType(parsed.owner, preferred, ghRoute)
   if (!ownerRes.ok) {
     return { ok: false, error: ownerRes.error }
   }
@@ -1668,7 +1684,7 @@ export async function resolveProjectRef(
   `
   const res = await runGraphql<
     Record<string, { projectV2?: { id?: string; title?: string } | null } | null>
-  >(query, { owner: parsed.owner, num: parsed.number }, ghCwd)
+  >(query, { owner: parsed.owner, num: parsed.number }, ghRoute)
   if (!res.ok) {
     return { ok: false, error: res.error }
   }
@@ -1707,7 +1723,7 @@ export async function listProjectViews(
   if (args.ownerType !== 'organization' && args.ownerType !== 'user') {
     return { ok: false, error: { type: 'validation_error', message: 'Invalid ownerType.' } }
   }
-  const ghCwd = targetToCwd(args)
+  const ghRoute = await targetToGhApiRoute(args)
   const summaries: GitHubProjectViewSummary[] = []
   let cursor: string | null = null
   while (true) {
@@ -1718,7 +1734,7 @@ export async function listProjectViews(
         projectNumber: args.projectNumber,
         after: cursor
       },
-      ghCwd
+      ghRoute
     )
     if (!page.ok) {
       return { ok: false, error: page.error }

@@ -111,6 +111,7 @@ import { AGENT_CATALOG } from '@/lib/agent-catalog'
 import { filterEnabledTuiAgents } from '../../../shared/tui-agent-selection'
 import { getConnectionId } from '@/lib/connection-context'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
+import { activeGitHubRepoTargetFromState } from '@/lib/github-active-repo-target'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import { launchWorkItemDirect } from '@/lib/launch-work-item-direct'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
@@ -500,6 +501,22 @@ function PRReviewersPanel({
   )
   const patchWorkItem = useAppStore((s) => s.patchWorkItem)
   const settings = useAppStore((s) => s.settings)
+  const repoForTarget = useAppStore((s) =>
+    repoPath
+      ? (s.repos.find((repo) => repo.path === repoPath) ?? null)
+      : s.activeRepoId
+        ? (s.repos.find((repo) => repo.id === s.activeRepoId) ?? null)
+        : null
+  )
+  const repoTarget = useMemo(
+    () =>
+      repoForTarget
+        ? { repoPath: repoForTarget.path, connectionId: repoForTarget.connectionId ?? null }
+        : repoPath
+          ? { repoPath }
+          : {},
+    [repoForTarget, repoPath]
+  )
   const reviewerInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -535,7 +552,8 @@ function PRReviewersPanel({
     open && reviewSlug ? reviewSlug.owner : null,
     open && reviewSlug ? reviewSlug.repo : null,
     reviewerSeedUsers.map((user) => user.login),
-    settings
+    settings,
+    repoTarget
   )
   const reviewerMetadataByPath = useRepoAssignees(
     open && !reviewSlug ? repoPath : null,
@@ -4126,8 +4144,10 @@ async function runIssueUpdate(args: {
   updates: Parameters<typeof window.api.gh.updateIssue>[0]['updates']
 }): Promise<void> {
   if (args.projectOrigin) {
-    const target = getActiveRuntimeTarget(useAppStore.getState().settings)
+    const state = useAppStore.getState()
+    const target = getActiveRuntimeTarget(state.settings)
     const updateArgs = {
+      ...activeGitHubRepoTargetFromState(state),
       owner: args.projectOrigin.owner,
       repo: args.projectOrigin.repo,
       number: args.number,
@@ -4175,8 +4195,10 @@ async function runWorkItemBodyUpdate(args: {
     if (!targetSlug) {
       throw new Error('No GitHub repository context available for this pull request.')
     }
-    const target = getActiveRuntimeTarget(useAppStore.getState().settings)
+    const state = useAppStore.getState()
+    const target = getActiveRuntimeTarget(state.settings)
     const updateArgs = {
+      ...activeGitHubRepoTargetFromState(state),
       owner: targetSlug.owner,
       repo: targetSlug.repo,
       number: args.item.number,
@@ -4214,8 +4236,10 @@ async function runPullRequestStateUpdate(args: {
   updates: { state: 'open' | 'closed' }
 }): Promise<void> {
   if (args.projectOrigin) {
-    const target = getActiveRuntimeTarget(useAppStore.getState().settings)
+    const state = useAppStore.getState()
+    const target = getActiveRuntimeTarget(state.settings)
     const updateArgs = {
+      ...activeGitHubRepoTargetFromState(state),
       owner: args.projectOrigin.owner,
       repo: args.projectOrigin.repo,
       number: args.number,
@@ -4288,6 +4312,25 @@ function GHEditSection({
   const hasEditedAssigneesRef = useRef(false)
   const patchWorkItem = useAppStore((s) => s.patchWorkItem)
   const patchProjectRowContent = useAppStore((s) => s.patchProjectRowContent)
+  const settings = useAppStore((s) => s.settings)
+  const repoForTarget = useAppStore((s) =>
+    repoId
+      ? (s.repos.find((repo) => repo.id === repoId) ?? null)
+      : repoPath
+        ? (s.repos.find((repo) => repo.path === repoPath) ?? null)
+        : s.activeRepoId
+          ? (s.repos.find((repo) => repo.id === s.activeRepoId) ?? null)
+          : null
+  )
+  const repoTarget = useMemo(
+    () =>
+      repoForTarget
+        ? { repoPath: repoForTarget.path, connectionId: repoForTarget.connectionId ?? null }
+        : repoPath
+          ? { repoPath }
+          : {},
+    [repoForTarget, repoPath]
+  )
   const { isPending, run } = useImmediateMutation()
   // Why: when the dialog opens from a Project view, mutations route through
   // *BySlug IPCs and we must keep `projectViewCache` in sync alongside
@@ -4313,13 +4356,19 @@ function GHEditSection({
     projectOrigin ? null : repoPath,
     projectOrigin ? null : repoId
   )
-  const repoLabelsBySlug = useRepoLabelsBySlug(slugOwner, slugRepo)
+  const repoLabelsBySlug = useRepoLabelsBySlug(slugOwner, slugRepo, settings, repoTarget)
   const repoLabels = projectOrigin ? repoLabelsBySlug : repoLabelsByPath
   const repoAssigneesByPath = useRepoAssignees(
     projectOrigin ? null : repoPath,
     projectOrigin ? null : repoId
   )
-  const repoAssigneesBySlug = useRepoAssigneesBySlug(slugOwner, slugRepo, assignees)
+  const repoAssigneesBySlug = useRepoAssigneesBySlug(
+    slugOwner,
+    slugRepo,
+    assignees,
+    settings,
+    repoTarget
+  )
   const repoAssignees = projectOrigin ? repoAssigneesBySlug : repoAssigneesByPath
 
   // Why: sync local assignees when item changes or when the detail fetch

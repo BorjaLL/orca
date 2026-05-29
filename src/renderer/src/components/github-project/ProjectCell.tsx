@@ -270,6 +270,16 @@ function IssueTypeCell({
   const [options, setOptions] = useState<GitHubIssueType[]>([])
   const [loading, setLoading] = useState(false)
   const settings = useAppStore((s) => s.settings)
+  const activeRepo = useAppStore((s) =>
+    s.activeRepoId ? (s.repos.find((repo) => repo.id === s.activeRepoId) ?? null) : null
+  )
+  const repoTarget = React.useMemo(
+    () =>
+      activeRepo
+        ? { repoPath: activeRepo.path, connectionId: activeRepo.connectionId ?? null }
+        : {},
+    [activeRepo]
+  )
   const [owner, repo] = (row.content.repository ?? '').split('/')
 
   React.useEffect(() => {
@@ -279,15 +289,16 @@ function IssueTypeCell({
     let cancelled = false
     setLoading(true)
     const target = getActiveRuntimeTarget(settings)
+    const args = { ...repoTarget, owner, repo }
     const request =
       target.kind === 'environment'
         ? callRuntimeRpc<ListIssueTypesBySlugResult>(
             target,
             'github.project.listIssueTypesBySlug',
-            { owner, repo },
+            args,
             { timeoutMs: 30_000 }
           )
-        : window.api.gh.listIssueTypesBySlug({ owner, repo })
+        : window.api.gh.listIssueTypesBySlug(args)
     request
       .then((res) => {
         if (cancelled) {
@@ -305,7 +316,7 @@ function IssueTypeCell({
     return () => {
       cancelled = true
     }
-  }, [open, owner, repo, settings])
+  }, [open, owner, repo, settings, repoTarget])
 
   const trigger = (
     <span className="inline-flex items-center gap-1 text-xs">
@@ -734,6 +745,16 @@ function AssigneesCell({
   const assignees = row.content.assignees
   const [open, setOpen] = useState(false)
   const settings = useAppStore((s) => s.settings)
+  const activeRepo = useAppStore((s) =>
+    s.activeRepoId ? (s.repos.find((repo) => repo.id === s.activeRepoId) ?? null) : null
+  )
+  const repoTarget = React.useMemo(
+    () =>
+      activeRepo
+        ? { repoPath: activeRepo.path, connectionId: activeRepo.connectionId ?? null }
+        : {},
+    [activeRepo]
+  )
 
   const [owner, repo] = (row.content.repository ?? '').split('/')
 
@@ -755,7 +776,8 @@ function AssigneesCell({
     open ? owner : null,
     open ? repo : null,
     seedKey ? seedKey.split(',') : [],
-    settings
+    settings,
+    repoTarget
   )
 
   const labelContent =
@@ -834,9 +856,24 @@ function LabelsCell({
   const labels = row.content.labels
   const [open, setOpen] = useState(false)
   const settings = useAppStore((s) => s.settings)
+  const activeRepo = useAppStore((s) =>
+    s.activeRepoId ? (s.repos.find((repo) => repo.id === s.activeRepoId) ?? null) : null
+  )
+  const repoTarget = React.useMemo(
+    () =>
+      activeRepo
+        ? { repoPath: activeRepo.path, connectionId: activeRepo.connectionId ?? null }
+        : {},
+    [activeRepo]
+  )
 
   const [owner, repo] = (row.content.repository ?? '').split('/')
-  const metadata = useRepoLabelsBySlug(open ? owner : null, open ? repo : null, settings)
+  const metadata = useRepoLabelsBySlug(
+    open ? owner : null,
+    open ? repo : null,
+    settings,
+    repoTarget
+  )
 
   const labelContent =
     labels.length === 0 ? null : labels.map((l) => <LabelChip key={l.name} label={l} />)

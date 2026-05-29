@@ -43,17 +43,22 @@ type Props = {
   // Why (issue #1715): repo target hint so the picker's gh calls land on the
   // right host in multi-host setups (e.g. github.com + GHES). The wrapping
   // ProjectViewWrapper derives this from the active worktree's owning repo;
-  // gh uses cwd:repoPath to infer the host from the git remote. Omit both to
+  // main resolves the gh API host from that repo's git remote. Omit both to
   // accept gh's globally-active host (legitimate when no repo context exists).
   repoTarget?: GitHubRepoTarget
 }
 
 const BROWSE_CACHE_TTL_MS = 5 * 60_000
 let browseCache: {
+  targetKey: string
   fetchedAt: number
   projects: GitHubProjectSummary[]
   partialFailures?: { owner: string; message: string }[]
 } | null = null
+
+function repoTargetCacheKey(repoTarget: GitHubRepoTarget): string {
+  return `${repoTarget.connectionId ?? 'local'}:${repoTarget.repoPath ?? ''}`
+}
 
 async function listAccessibleProjectsForRuntime(
   settings: Parameters<typeof getActiveRuntimeTarget>[0],
@@ -115,6 +120,7 @@ export default function ProjectPicker({
     }),
     [repoTarget?.repoPath, repoTarget?.connectionId]
   )
+  const ghRepoTargetKey = useMemo(() => repoTargetCacheKey(ghRepoTarget), [ghRepoTarget])
   const projectSettings: GitHubProjectSettings = useMemo(
     () =>
       settings?.githubProjects ?? {
@@ -130,15 +136,15 @@ export default function ProjectPicker({
   const [query, setQuery] = useState('')
   const [browseLoading, setBrowseLoading] = useState(false)
   const [browseError, setBrowseError] = useState<GitHubProjectViewError | null>(null)
-  const [browseProjects, setBrowseProjects] = useState<GitHubProjectSummary[]>(
-    () => browseCache?.projects ?? []
+  const [browseProjects, setBrowseProjects] = useState<GitHubProjectSummary[]>(() =>
+    browseCache?.targetKey === ghRepoTargetKey ? browseCache.projects : []
   )
   // Why: partial-failures are cached alongside projects so dismissing the
   // popover and reopening within the 5min window doesn't flicker the
   // banner back. Populated only when discovery succeeded but a subset of
   // orgs failed (the 504 path the user reported).
-  const [partialFailures, setPartialFailures] = useState<{ owner: string; message: string }[]>(
-    () => browseCache?.partialFailures ?? []
+  const [partialFailures, setPartialFailures] = useState<{ owner: string; message: string }[]>(() =>
+    browseCache?.targetKey === ghRepoTargetKey ? (browseCache.partialFailures ?? []) : []
   )
   const [pasteInput, setPasteInput] = useState('')
   const [pasteError, setPasteError] = useState<string | null>(null)
@@ -150,7 +156,11 @@ export default function ProjectPicker({
   const [viewLoading, setViewLoading] = useState(false)
 
   const loadBrowse = useCallback(async () => {
-    if (browseCache && Date.now() - browseCache.fetchedAt < BROWSE_CACHE_TTL_MS) {
+    if (
+      browseCache &&
+      browseCache.targetKey === ghRepoTargetKey &&
+      Date.now() - browseCache.fetchedAt < BROWSE_CACHE_TTL_MS
+    ) {
       setBrowseProjects(browseCache.projects)
       setPartialFailures(browseCache.partialFailures ?? [])
       return
@@ -161,6 +171,7 @@ export default function ProjectPicker({
       const res = await listAccessibleProjectsForRuntime(settings, ghRepoTarget)
       if (res.ok) {
         browseCache = {
+          targetKey: ghRepoTargetKey,
           fetchedAt: Date.now(),
           projects: res.projects,
           partialFailures: res.partialFailures
@@ -178,7 +189,17 @@ export default function ProjectPicker({
     } finally {
       setBrowseLoading(false)
     }
-  }, [settings, ghRepoTarget])
+  }, [settings, ghRepoTarget, ghRepoTargetKey])
+
+  useEffect(() => {
+    if (browseCache?.targetKey === ghRepoTargetKey) {
+      setBrowseProjects(browseCache.projects)
+      setPartialFailures(browseCache.partialFailures ?? [])
+      return
+    }
+    setBrowseProjects([])
+    setPartialFailures([])
+  }, [ghRepoTargetKey])
 
   useEffect(() => {
     if (open && !viewPickFor) {
@@ -749,8 +770,8 @@ function parseProjectInput(
   try {
     const url = new URL(input)
     // Why (issue #1715): accept any host so GHES project URLs parse. The host
-    // itself is not propagated from this client-side validator; the main
-    // process resolver targets the right gh host via cwd:repoPath. We require
+    // itself is re-parsed by the main process resolver for explicit host
+    // routing. We require
     // at least one dot to reject obvious garbage hosts pasted by mistake.
     if (!url.hostname.includes('.')) {
       return null

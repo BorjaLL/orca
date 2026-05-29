@@ -19,7 +19,22 @@ export function LabelsEditor({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const settings = useAppStore((s) => s.settings)
-  const metadata = useRepoLabelsBySlug(open ? owner : null, open ? repo : null, settings)
+  const activeRepo = useAppStore((s) =>
+    s.activeRepoId ? (s.repos.find((candidate) => candidate.id === s.activeRepoId) ?? null) : null
+  )
+  const repoTarget = React.useMemo(
+    () =>
+      activeRepo
+        ? { repoPath: activeRepo.path, connectionId: activeRepo.connectionId ?? null }
+        : {},
+    [activeRepo]
+  )
+  const metadata = useRepoLabelsBySlug(
+    open ? owner : null,
+    open ? repo : null,
+    settings,
+    repoTarget
+  )
   return (
     <Popover open={open} onOpenChange={(o) => !disabled && setOpen(o)}>
       <PopoverTrigger asChild>

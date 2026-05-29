@@ -19,6 +19,16 @@ export function AssigneesEditor({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const settings = useAppStore((s) => s.settings)
+  const activeRepo = useAppStore((s) =>
+    s.activeRepoId ? (s.repos.find((candidate) => candidate.id === s.activeRepoId) ?? null) : null
+  )
+  const repoTarget = useMemo(
+    () =>
+      activeRepo
+        ? { repoPath: activeRepo.path, connectionId: activeRepo.connectionId ?? null }
+        : {},
+    [activeRepo]
+  )
   // Why: stabilize the assignee seed identity. `selected` is a fresh array on
   // every parent render — depending on it directly would refire the IPC for
   // every unrelated re-render while the popover is open.
@@ -27,7 +37,8 @@ export function AssigneesEditor({
     open ? owner : null,
     open ? repo : null,
     seedKey ? seedKey.split(',') : [],
-    settings
+    settings,
+    repoTarget
   )
   return (
     <Popover open={open} onOpenChange={(o) => !disabled && setOpen(o)}>
