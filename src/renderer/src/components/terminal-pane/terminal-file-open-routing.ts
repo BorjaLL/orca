@@ -71,6 +71,33 @@ export function isTerminalFilePathLocalToClient(
 }
 
 let latestOpenDetectedFilePathRequestId = 0
+let pendingEditorRevealFrameIds: number[] = []
+
+function cancelPendingEditorRevealFrames(): void {
+  if (typeof cancelAnimationFrame === 'function') {
+    for (const frameId of pendingEditorRevealFrameIds) {
+      cancelAnimationFrame(frameId)
+    }
+  }
+  pendingEditorRevealFrameIds = []
+}
+
+function schedulePendingEditorReveal(callback: () => void): void {
+  cancelPendingEditorRevealFrames()
+  const firstFrameId = requestAnimationFrame(() => {
+    pendingEditorRevealFrameIds = pendingEditorRevealFrameIds.filter(
+      (frameId) => frameId !== firstFrameId
+    )
+    const secondFrameId = requestAnimationFrame(() => {
+      pendingEditorRevealFrameIds = pendingEditorRevealFrameIds.filter(
+        (frameId) => frameId !== secondFrameId
+      )
+      callback()
+    })
+    pendingEditorRevealFrameIds.push(secondFrameId)
+  })
+  pendingEditorRevealFrameIds.push(firstFrameId)
+}
 
 export function openDetectedFilePath(
   filePath: string,
@@ -80,6 +107,7 @@ export function openDetectedFilePath(
 ): void {
   const { runtimeEnvironmentId, worktreeId, worktreePath } = deps
   const requestId = ++latestOpenDetectedFilePathRequestId
+  cancelPendingEditorRevealFrames()
 
   void (async () => {
     let statResult
@@ -150,17 +178,15 @@ export function openDetectedFilePath(
     if (line !== null) {
       const targetColumn = column ?? 1
       store.setPendingEditorReveal(null)
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (requestId !== latestOpenDetectedFilePathRequestId) {
-            return
-          }
-          store.setPendingEditorReveal({
-            filePath,
-            line,
-            column: targetColumn,
-            matchLength: 0
-          })
+      schedulePendingEditorReveal(() => {
+        if (requestId !== latestOpenDetectedFilePathRequestId) {
+          return
+        }
+        store.setPendingEditorReveal({
+          filePath,
+          line,
+          column: targetColumn,
+          matchLength: 0
         })
       })
     }

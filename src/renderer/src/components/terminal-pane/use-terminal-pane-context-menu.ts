@@ -1,27 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
 import { getConnectionId } from '@/lib/connection-context'
 import { resolveSplitCwd, type PaneCwdMap } from './resolve-split-cwd'
 import type { TerminalQuickCommand } from '../../../../shared/types'
+import { isTerminalAgentQuickCommand } from '../../../../shared/terminal-quick-commands'
 import { sendTerminalQuickCommandToPane } from './terminal-quick-command-dispatch'
 import { splitWebRuntimeTerminal } from '@/runtime/web-runtime-session'
 import { pasteTerminalText } from './terminal-bracketed-paste'
 import { pasteTerminalClipboard } from './terminal-clipboard-paste'
-import { openDetectedFilePath } from './terminal-file-open-routing'
+import { runQuickCommandInNewTab } from '@/lib/run-quick-command-in-new-tab'
 import type {
   TerminalFileLinkMenuTarget,
   TerminalFileLinkResolver
 } from './terminal-file-link-hit-testing'
-import { useAppStore } from '@/store'
-
-const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'orca-close-all-context-menus'
+import { handleTerminalRightClickPaste } from './terminal-right-click-paste'
+import {
+  closeAllTerminalContextMenus,
+  useTerminalContextMenuCloseEvent
+} from './use-terminal-context-menu-close-event'
+import { useTerminalFileLinkMenuActions } from './use-terminal-file-link-menu-actions'
 
 type UseTerminalPaneContextMenuDeps = {
   managerRef: React.RefObject<PaneManager | null>
   paneTransportsRef: React.RefObject<Map<number, PtyTransport>>
   paneCwdRef: React.RefObject<PaneCwdMap>
   worktreeId: string
+  groupId: string | null
   fallbackCwd: string
   toggleExpandPane: (paneId: number) => void
   onRequestClosePane: (paneId: number) => void
@@ -61,6 +66,7 @@ export function useTerminalPaneContextMenu({
   paneTransportsRef,
   paneCwdRef,
   worktreeId,
+  groupId,
   fallbackCwd,
   toggleExpandPane,
   onRequestClosePane,
@@ -73,18 +79,8 @@ export function useTerminalPaneContextMenu({
   const menuOpenedAtRef = useRef(0)
   const [open, setOpen] = useState(false)
   const [point, setPoint] = useState({ x: 0, y: 0 })
-  const [menuLink, setMenuLink] = useState<TerminalFileLinkMenuTarget | null>(null)
 
-  useEffect(() => {
-    const closeMenu = (): void => {
-      if (Date.now() - menuOpenedAtRef.current < 100) {
-        return
-      }
-      setOpen(false)
-    }
-    window.addEventListener(CLOSE_ALL_CONTEXT_MENUS_EVENT, closeMenu)
-    return () => window.removeEventListener(CLOSE_ALL_CONTEXT_MENUS_EVENT, closeMenu)
-  }, [])
+  useTerminalContextMenuCloseEvent(menuOpenedAtRef, setOpen)
 
   const resolveMenuPane = (): ManagedPane | null => {
     const manager = managerRef.current
@@ -100,6 +96,22 @@ export function useTerminalPaneContextMenu({
     }
     return manager.getActivePane() ?? panes[0] ?? null
   }
+
+  const {
+    menuLink,
+    resolveMenuLink,
+    onOpenLink,
+    onRevealLink,
+    onOpenLinkExternally,
+    onCopyLinkPath
+  } = useTerminalFileLinkMenuActions({
+    fileLinkResolverRef,
+    worktreeId,
+    fallbackCwd,
+    focusMenuPane: () => {
+      resolveMenuPane()?.terminal.focus()
+    }
+  })
 
   const onCopy = async (): Promise<void> => {
     const pane = resolveMenuPane()
@@ -197,6 +209,11 @@ export function useTerminalPaneContextMenu({
   }
 
   const onQuickCommand = (command: TerminalQuickCommand): void => {
+    if (isTerminalAgentQuickCommand(command)) {
+      runQuickCommandInNewTab({ command, worktreeId, groupId })
+      return
+    }
+
     const pane = resolveMenuPane()
     if (!pane) {
       return
@@ -224,7 +241,7 @@ export function useTerminalPaneContextMenu({
 
   const onContextMenuCapture = (event: React.MouseEvent<HTMLDivElement>): void => {
     event.preventDefault()
-    window.dispatchEvent(new Event(CLOSE_ALL_CONTEXT_MENUS_EVENT))
+    closeAllTerminalContextMenus()
     const manager = managerRef.current
     if (!manager) {
       contextPaneIdRef.current = null
@@ -243,78 +260,16 @@ export function useTerminalPaneContextMenu({
     // clears the selection; without one, it pastes. Ctrl+right-click still
     // reaches the app menu so the menu remains discoverable.
     if (rightClickToPaste && !event.ctrlKey) {
-      event.stopPropagation()
-      const selection = clickedPane?.terminal.getSelection()
-      if (selection) {
-        void window.api.ui.writeClipboardText(selection)
-        clickedPane?.terminal.clearSelection()
-      } else {
-        void onPaste()
-      }
+      handleTerminalRightClickPaste({ event, clickedPane, onPaste })
       return
     }
 
-    // Why: resolve the file link under the cursor so the menu can offer
-    // Open / Reveal / Copy Path for it. null when not over a known path.
-    setMenuLink(
-      clickedPane
-        ? (fileLinkResolverRef.current?.(clickedPane.id, event.nativeEvent) ?? null)
-        : null
-    )
+    resolveMenuLink(clickedPane?.id ?? null, event.nativeEvent)
 
     menuOpenedAtRef.current = Date.now()
     const bounds = event.currentTarget.getBoundingClientRect()
     setPoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top })
     setOpen(true)
-  }
-
-  const resolveLinkWorktreePath = (): string =>
-    useAppStore
-      .getState()
-      .allWorktrees()
-      .find((candidate) => candidate.id === worktreeId)?.path ??
-    fallbackCwd ??
-    ''
-
-  const onOpenLink = (): void => {
-    if (!menuLink) {
-      return
-    }
-    // Why: mirror ⌘-click — route through the same open path so HTML still
-    // renders in the browser and editor reveal/line jumps behave identically.
-    openDetectedFilePath(menuLink.absolutePath, menuLink.line, menuLink.column, {
-      worktreeId,
-      worktreePath: resolveLinkWorktreePath(),
-      runtimeEnvironmentId: menuLink.runtimeEnvironmentId
-    })
-  }
-
-  const onRevealLink = (): void => {
-    // Why: reveal/open-externally hand a path to the local OS; only valid for
-    // local files (remote/SSH paths live on another machine).
-    if (!menuLink?.isLocal) {
-      return
-    }
-    void window.api.shell.openInFileManager(menuLink.absolutePath)
-  }
-
-  const onOpenLinkExternally = (): void => {
-    if (!menuLink?.isLocal) {
-      return
-    }
-    void window.api.shell.openFilePath(menuLink.absolutePath)
-  }
-
-  const onCopyLinkPath = async (): Promise<void> => {
-    if (!menuLink) {
-      return
-    }
-    await window.api.ui.writeClipboardText(menuLink.absolutePath)
-    // Why: Radix returns focus to the hidden trigger on close, but xterm only
-    // accepts input when its helper textarea is focused — without this the user
-    // must click the pane before typing again (see #592). Open/Reveal don't
-    // need it because they move focus to the editor/Finder anyway.
-    resolveMenuPane()?.terminal.focus()
   }
 
   const paneCount = managerRef.current?.getPanes().length ?? 1

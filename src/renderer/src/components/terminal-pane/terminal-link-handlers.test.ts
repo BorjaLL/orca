@@ -118,6 +118,9 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback): number => {
     return setTimeout(() => callback(0), 0) as unknown as number
   })
+  vi.stubGlobal('cancelAnimationFrame', (handle: number): void => {
+    clearTimeout(handle)
+  })
 })
 
 afterEach(() => {
@@ -313,6 +316,24 @@ describe('handleOscLink', () => {
       column: 7,
       matchLength: 0
     })
+  })
+
+  it('cancels a pending Monaco reveal frame when another file open starts', async () => {
+    setPlatform('Macintosh')
+    const cancelAnimationFrame = vi.fn()
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => 42)
+    )
+    vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrame)
+
+    openDetectedFilePath('/tmp/src/main.ts', 42, null, deps)
+    await flushAsyncWork()
+
+    openDetectedFilePath('/tmp/src/other.ts', null, null, deps)
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(42)
+    expect(setPendingEditorRevealMock).toHaveBeenCalledWith(null)
   })
 
   it('advertises the browser-open behavior in the html hover hint', () => {
