@@ -292,22 +292,22 @@ describe('createUISlice hydratePersistedUI', () => {
     expect(store.getState().workspaceBoardCompact).toBe(false)
   })
 
-  it('keeps workspace board fit-columns on unless explicitly disabled', () => {
+  it('keeps workspace board fit-columns off unless explicitly enabled', () => {
     const store = createUIStore()
 
     store.getState().hydratePersistedUI(
       makePersistedUI({
-        workspaceBoardFitColumns: false
+        workspaceBoardFitColumns: true
       })
     )
-    expect(store.getState().workspaceBoardFitColumns).toBe(false)
+    expect(store.getState().workspaceBoardFitColumns).toBe(true)
 
     store.getState().hydratePersistedUI(
       makePersistedUI({
         workspaceBoardFitColumns: 'yes' as unknown as boolean
       })
     )
-    expect(store.getState().workspaceBoardFitColumns).toBe(true)
+    expect(store.getState().workspaceBoardFitColumns).toBe(false)
   })
 
   it('clamps persisted workspace board column width', () => {

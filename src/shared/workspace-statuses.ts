@@ -242,10 +242,10 @@ export function normalizeWorkspaceBoardCompact(value: unknown): boolean {
   return value === true
 }
 
-// Why: fit-to-width is on by default, so only an explicit `false` (the user
-// opting into fixed-width, horizontally-scrolling columns) turns it off.
+// Why: full-width columns (the board widens to fit them) are the default, so
+// only an explicit `true` opts into shrink-to-fit lanes.
 export function normalizeWorkspaceBoardFitColumns(value: unknown): boolean {
-  return value !== false
+  return value === true
 }
 
 export function clampWorkspaceBoardColumnWidth(value: unknown): number {

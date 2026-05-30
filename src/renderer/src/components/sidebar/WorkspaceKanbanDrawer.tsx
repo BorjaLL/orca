@@ -32,6 +32,7 @@ import {
 } from './worktree-manual-order'
 import type { WorkspaceStatus, WorktreeMeta } from '../../../../shared/types'
 import {
+  WORKSPACE_BOARD_COLUMN_GAP,
   fitWorkspaceBoardColumnWidth,
   makeWorkspaceStatusId
 } from '../../../../shared/workspace-statuses'
@@ -120,19 +121,23 @@ export default function WorkspaceKanbanDrawer({
   })
   const { columnWidth, isResizingColumn, onColumnResizeStart, onColumnResizeKeyDown } =
     useWorkspaceKanbanColumnResize(workspaceBoardColumnWidth, setWorkspaceBoardColumnWidth)
-  useEffect(() => {
-    const node = laneScrollerRef.current
-    if (!open || !node) {
+  const laneScrollerResizeRef = useRef<ResizeObserver | null>(null)
+  // Why: measure the live board width from a ref callback (fires when the portal
+  // node actually mounts) so "fit columns" can shrink lanes as the board resizes.
+  // An [open]-gated effect missed the scroller node on first open, leaving the
+  // width at 0 so fit() always returned the cap and lanes never shrank.
+  const attachLaneScroller = useCallback((node: HTMLDivElement | null) => {
+    laneScrollerRef.current = node
+    laneScrollerResizeRef.current?.disconnect()
+    laneScrollerResizeRef.current = null
+    if (!node) {
       return
     }
-    // Why: lane width is derived from the live board width so "fit columns" can
-    // shrink lanes to keep every status visible as the sidebar/board resizes.
-    const measure = (): void => setLaneScrollerWidth(node.clientWidth)
-    measure()
-    const observer = new ResizeObserver(measure)
+    setLaneScrollerWidth(node.clientWidth)
+    const observer = new ResizeObserver(() => setLaneScrollerWidth(node.clientWidth))
     observer.observe(node)
-    return () => observer.disconnect()
-  }, [open])
+    laneScrollerResizeRef.current = observer
+  }, [])
   const renderColumnWidth = useMemo(
     () =>
       workspaceBoardFitColumns
@@ -502,6 +507,14 @@ export default function WorkspaceKanbanDrawer({
   const drawerLeftCss = sidebarOpen
     ? `var(--workspace-sidebar-live-width, ${sidebarWidth}px)`
     : '0px'
+  // Why: grow the board to fit its columns at full width (overlaying the
+  // right-side panels) so columns never shrink; keep a 1294px floor so sparse
+  // boards keep their familiar size, and the 100vw cap stops it leaving screen.
+  const boardContentWidth =
+    workspaceStatuses.length * columnWidth +
+    Math.max(0, workspaceStatuses.length - 1) * WORKSPACE_BOARD_COLUMN_GAP +
+    24
+  const boardWidthCss = `min(calc(100vw - ${drawerLeftCss}), ${Math.max(boardContentWidth, 1294)}px)`
 
   return (
     <Sheet open={open} onOpenChange={handleSheetOpenChange} modal={false}>
@@ -512,12 +525,13 @@ export default function WorkspaceKanbanDrawer({
         overlayStyle={{ top: 36, left: drawerLeftCss, pointerEvents: 'none' }}
         style={
           {
-            // Why: the board is a companion to the workspace sidebar, so it
-            // expands from the sidebar edge instead of covering the sidebar.
+            // Why: the board expands from the sidebar edge across the remaining
+            // width (covering the editor/right panels as needed) so every status
+            // column gets full-width room instead of shrinking to fit.
             left: drawerLeftCss,
             top: 36,
             height: 'calc(100% - 36px)',
-            width: `min(calc(100vw - ${drawerLeftCss}), 1294px)`
+            width: boardWidthCss
           } as React.CSSProperties
         }
         data-workspace-board-compact={workspaceBoardCompact ? 'true' : 'false'}
@@ -611,7 +625,7 @@ export default function WorkspaceKanbanDrawer({
             onDragLeave={handlePinDragLeave}
           />
           <div
-            ref={laneScrollerRef}
+            ref={attachLaneScroller}
             className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-sleek"
           >
             <WorkspaceKanbanLaneGrid

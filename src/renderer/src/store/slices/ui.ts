@@ -1101,7 +1101,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     set({ workspaceBoardCompact: normalized })
   },
 
-  workspaceBoardFitColumns: true,
+  workspaceBoardFitColumns: false,
   setWorkspaceBoardFitColumns: (fitColumns) => {
     const normalized = normalizeWorkspaceBoardFitColumns(fitColumns)
     window.api.ui.set({ workspaceBoardFitColumns: normalized }).catch(console.error)
