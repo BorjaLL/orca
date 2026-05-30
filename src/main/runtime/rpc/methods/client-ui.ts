@@ -145,6 +145,7 @@ const UiUpdate = z
     workspaceStatuses: z.array(WorkspaceStatusDefinition).optional(),
     workspaceBoardOpacity: z.number().finite().optional(),
     workspaceBoardCompact: z.boolean().optional(),
+    workspaceBoardFitColumns: z.boolean().optional(),
     workspaceBoardColumnWidth: z.number().finite().optional(),
     _workspaceStatusesDefaultOrderMigrated: z.boolean().optional(),
     _workspaceStatusesDefaultWorkflowMigrated: z.boolean().optional(),

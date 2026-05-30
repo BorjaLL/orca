@@ -17,8 +17,10 @@ import WorkspaceStatusAppearancePopover from './WorkspaceStatusAppearancePopover
 
 type WorkspaceKanbanSettingsMenuProps = {
   compact: boolean
+  fitColumns: boolean
   workspaceStatuses: readonly WorkspaceStatusDefinition[]
   onCompactChange: (compact: boolean) => void
+  onFitColumnsChange: (fitColumns: boolean) => void
   onRenameStatus: (statusId: string, label: string) => void
   onChangeStatusColor: (statusId: string, color: string) => void
   onChangeStatusIcon: (statusId: string, icon: string) => void
@@ -29,8 +31,10 @@ type WorkspaceKanbanSettingsMenuProps = {
 
 export default function WorkspaceKanbanSettingsMenu({
   compact,
+  fitColumns,
   workspaceStatuses,
   onCompactChange,
+  onFitColumnsChange,
   onRenameStatus,
   onChangeStatusColor,
   onChangeStatusIcon,
@@ -101,6 +105,37 @@ export default function WorkspaceKanbanSettingsMenu({
             >
               <Rows3 className="size-3.5" />
               Compact
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Column width</DropdownMenuLabel>
+        <div className="px-2 pb-2">
+          <ToggleGroup
+            type="single"
+            value={fitColumns ? 'fit' : 'fixed'}
+            onValueChange={(value) => {
+              if (value) {
+                onFitColumnsChange(value === 'fit')
+              }
+            }}
+            variant="outline"
+            size="sm"
+            className="h-7 w-full justify-stretch"
+          >
+            <ToggleGroupItem
+              value="fit"
+              className="h-7 grow basis-0 gap-1.5 px-1.5 text-[11px] data-[state=on]:bg-foreground/10 data-[state=on]:font-semibold data-[state=on]:text-foreground"
+              aria-label="Fit columns to the board width"
+            >
+              Fit
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              value="fixed"
+              className="h-7 grow basis-0 gap-1.5 px-1.5 text-[11px] data-[state=on]:bg-foreground/10 data-[state=on]:font-semibold data-[state=on]:text-foreground"
+              aria-label="Fixed column width"
+            >
+              Fixed
             </ToggleGroupItem>
           </ToggleGroup>
         </div>

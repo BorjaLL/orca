@@ -22,6 +22,9 @@ export const WORKSPACE_BOARD_COLUMN_WIDTH_DEFAULT = 308
 export const WORKSPACE_BOARD_COLUMN_WIDTH_MIN = 220
 export const WORKSPACE_BOARD_COLUMN_WIDTH_MAX = 520
 export const WORKSPACE_BOARD_COLUMN_WIDTH_STEP = 20
+// Why: must match the `gap-3` (12px) lane gap in WorkspaceKanbanLaneGrid — used
+// to compute how many columns fit when "fit columns" is enabled.
+export const WORKSPACE_BOARD_COLUMN_GAP = 12
 
 export const WORKSPACE_STATUS_COLOR_IDS = [
   'neutral',
@@ -239,6 +242,12 @@ export function normalizeWorkspaceBoardCompact(value: unknown): boolean {
   return value === true
 }
 
+// Why: fit-to-width is on by default, so only an explicit `false` (the user
+// opting into fixed-width, horizontally-scrolling columns) turns it off.
+export function normalizeWorkspaceBoardFitColumns(value: unknown): boolean {
+  return value !== false
+}
+
 export function clampWorkspaceBoardColumnWidth(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return WORKSPACE_BOARD_COLUMN_WIDTH_DEFAULT
@@ -247,6 +256,27 @@ export function clampWorkspaceBoardColumnWidth(value: unknown): number {
     WORKSPACE_BOARD_COLUMN_WIDTH_MAX,
     Math.max(WORKSPACE_BOARD_COLUMN_WIDTH_MIN, Math.round(value))
   )
+}
+
+/**
+ * Effective lane width when "fit columns" is enabled: shrink lanes so more
+ * (ideally all) columns fit the available width — never wider than the user's
+ * chosen width, never thinner than the min (below the min the board scrolls).
+ */
+export function fitWorkspaceBoardColumnWidth(args: {
+  containerWidth: number
+  columnCount: number
+  capWidth: number
+  gap?: number
+}): number {
+  const cap = clampWorkspaceBoardColumnWidth(args.capWidth)
+  if (args.columnCount <= 0 || !Number.isFinite(args.containerWidth) || args.containerWidth <= 0) {
+    return cap
+  }
+  const gap = args.gap ?? WORKSPACE_BOARD_COLUMN_GAP
+  const available = args.containerWidth - gap * (args.columnCount - 1)
+  const perColumn = Math.floor(available / args.columnCount)
+  return Math.min(cap, Math.max(WORKSPACE_BOARD_COLUMN_WIDTH_MIN, perColumn))
 }
 
 export function isWorkspaceStatusId(

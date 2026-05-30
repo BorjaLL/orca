@@ -14,6 +14,7 @@ type WorkspaceKanbanLaneGridProps = {
   activeWorktreeId: string | null
   compact: boolean
   columnWidth: number
+  renderColumnWidth: number
   isResizingColumn: boolean
   dragOverStatus: WorkspaceStatus | null
   canCreateWorktree: boolean
@@ -40,6 +41,7 @@ export default function WorkspaceKanbanLaneGrid({
   activeWorktreeId,
   compact,
   columnWidth,
+  renderColumnWidth,
   isResizingColumn,
   dragOverStatus,
   canCreateWorktree,
@@ -59,7 +61,7 @@ export default function WorkspaceKanbanLaneGrid({
     <div
       className="grid h-full min-h-0 min-w-full grid-rows-[minmax(0,1fr)] gap-3"
       style={{
-        gridTemplateColumns: `repeat(${statuses.length}, minmax(${columnWidth}px, ${columnWidth}px))`
+        gridTemplateColumns: `repeat(${statuses.length}, minmax(${renderColumnWidth}px, ${renderColumnWidth}px))`
       }}
     >
       {statuses.map((status) => (

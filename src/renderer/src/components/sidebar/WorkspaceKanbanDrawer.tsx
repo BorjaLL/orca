@@ -31,7 +31,10 @@ import {
   type WorktreeDragGroup
 } from './worktree-manual-order'
 import type { WorkspaceStatus, WorktreeMeta } from '../../../../shared/types'
-import { makeWorkspaceStatusId } from '../../../../shared/workspace-statuses'
+import {
+  fitWorkspaceBoardColumnWidth,
+  makeWorkspaceStatusId
+} from '../../../../shared/workspace-statuses'
 
 type WorkspaceKanbanDrawerProps = {
   open: boolean
@@ -57,6 +60,8 @@ export default function WorkspaceKanbanDrawer({
   const setWorkspaceBoardCompact = useAppStore((s) => s.setWorkspaceBoardCompact)
   const workspaceBoardColumnWidth = useAppStore((s) => s.workspaceBoardColumnWidth)
   const setWorkspaceBoardColumnWidth = useAppStore((s) => s.setWorkspaceBoardColumnWidth)
+  const workspaceBoardFitColumns = useAppStore((s) => s.workspaceBoardFitColumns)
+  const setWorkspaceBoardFitColumns = useAppStore((s) => s.setWorkspaceBoardFitColumns)
   const sortBy = useAppStore((s) => s.sortBy)
   const setSortBy = useAppStore((s) => s.setSortBy)
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
@@ -66,6 +71,7 @@ export default function WorkspaceKanbanDrawer({
   const areaSelectionOverlayRef = useRef<HTMLDivElement>(null)
   const [dragOverStatus, setDragOverStatus] = useState<WorkspaceStatus | null>(null)
   const [pinDragOver, setPinDragOver] = useState(false)
+  const [laneScrollerWidth, setLaneScrollerWidth] = useState(0)
   const { canCreateWorktree, createWorktreeForStatus } = useWorkspaceKanbanCreateWorktree()
   const visibleWorktreeIdSet = useVisibleWorkspaceKanbanWorktreeIds({
     allWorktrees,
@@ -114,6 +120,30 @@ export default function WorkspaceKanbanDrawer({
   })
   const { columnWidth, isResizingColumn, onColumnResizeStart, onColumnResizeKeyDown } =
     useWorkspaceKanbanColumnResize(workspaceBoardColumnWidth, setWorkspaceBoardColumnWidth)
+  useEffect(() => {
+    const node = laneScrollerRef.current
+    if (!open || !node) {
+      return
+    }
+    // Why: lane width is derived from the live board width so "fit columns" can
+    // shrink lanes to keep every status visible as the sidebar/board resizes.
+    const measure = (): void => setLaneScrollerWidth(node.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [open])
+  const renderColumnWidth = useMemo(
+    () =>
+      workspaceBoardFitColumns
+        ? fitWorkspaceBoardColumnWidth({
+            containerWidth: laneScrollerWidth,
+            columnCount: workspaceStatuses.length,
+            capWidth: columnWidth
+          })
+        : columnWidth,
+    [columnWidth, laneScrollerWidth, workspaceBoardFitColumns, workspaceStatuses.length]
+  )
   const moveWorktreeToStatus = useCallback(
     (worktreeId: string, status: WorkspaceStatus) => {
       const current = worktreeById.get(worktreeId)
@@ -549,10 +579,15 @@ export default function WorkspaceKanbanDrawer({
         <WorkspaceKanbanDrawerHeader
           selectedCount={selectedWorktrees.length}
           compact={workspaceBoardCompact}
+          fitColumns={workspaceBoardFitColumns}
           workspaceStatuses={workspaceStatuses}
           onCompactChange={(compact) => {
             useAppStore.getState().recordFeatureInteraction('workspace-board-actions')
             setWorkspaceBoardCompact(compact)
+          }}
+          onFitColumnsChange={(fitColumns) => {
+            useAppStore.getState().recordFeatureInteraction('workspace-board-actions')
+            setWorkspaceBoardFitColumns(fitColumns)
           }}
           onRenameStatus={handleRenameStatus}
           onChangeStatusColor={handleChangeStatusColor}
@@ -586,6 +621,7 @@ export default function WorkspaceKanbanDrawer({
               activeWorktreeId={activeWorktreeId}
               compact={workspaceBoardCompact}
               columnWidth={columnWidth}
+              renderColumnWidth={renderColumnWidth}
               isResizingColumn={isResizingColumn}
               dragOverStatus={dragOverStatus}
               canCreateWorktree={canCreateWorktree}

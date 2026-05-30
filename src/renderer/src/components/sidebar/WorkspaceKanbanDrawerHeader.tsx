@@ -9,8 +9,10 @@ import WorkspaceKanbanSettingsMenu from './WorkspaceKanbanSettingsMenu'
 type WorkspaceKanbanDrawerHeaderProps = {
   selectedCount: number
   compact: boolean
+  fitColumns: boolean
   workspaceStatuses: readonly WorkspaceStatusDefinition[]
   onCompactChange: (compact: boolean) => void
+  onFitColumnsChange: (fitColumns: boolean) => void
   onRenameStatus: (statusId: string, label: string) => void
   onChangeStatusColor: (statusId: string, color: string) => void
   onChangeStatusIcon: (statusId: string, icon: string) => void
@@ -23,8 +25,10 @@ type WorkspaceKanbanDrawerHeaderProps = {
 export default function WorkspaceKanbanDrawerHeader({
   selectedCount,
   compact,
+  fitColumns,
   workspaceStatuses,
   onCompactChange,
+  onFitColumnsChange,
   onRenameStatus,
   onChangeStatusColor,
   onChangeStatusIcon,
@@ -58,8 +62,10 @@ export default function WorkspaceKanbanDrawerHeader({
         />
         <WorkspaceKanbanSettingsMenu
           compact={compact}
+          fitColumns={fitColumns}
           workspaceStatuses={workspaceStatuses}
           onCompactChange={onCompactChange}
+          onFitColumnsChange={onFitColumnsChange}
           onRenameStatus={onRenameStatus}
           onChangeStatusColor={onChangeStatusColor}
           onChangeStatusIcon={onChangeStatusIcon}

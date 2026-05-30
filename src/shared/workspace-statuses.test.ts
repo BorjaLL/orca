@@ -5,9 +5,42 @@ import {
   WORKSPACE_BOARD_COLUMN_WIDTH_MIN,
   clampWorkspaceBoardColumnWidth,
   cloneDefaultWorkspaceStatuses,
+  fitWorkspaceBoardColumnWidth,
   normalizePersistedWorkspaceStatuses,
   normalizeWorkspaceStatuses
 } from './workspace-statuses'
+
+describe('fitWorkspaceBoardColumnWidth', () => {
+  it('returns the cap before the board is measured', () => {
+    expect(fitWorkspaceBoardColumnWidth({ containerWidth: 0, columnCount: 6, capWidth: 308 })).toBe(
+      308
+    )
+  })
+
+  it('keeps the cap when every column already fits', () => {
+    expect(
+      fitWorkspaceBoardColumnWidth({ containerWidth: 1400, columnCount: 4, capWidth: 308 })
+    ).toBe(308)
+  })
+
+  it('shrinks lanes to fit more columns, never below the min', () => {
+    expect(
+      fitWorkspaceBoardColumnWidth({ containerWidth: 900, columnCount: 6, capWidth: 308 })
+    ).toBe(WORKSPACE_BOARD_COLUMN_WIDTH_MIN)
+  })
+
+  it('fits exactly between the min and the cap', () => {
+    expect(
+      fitWorkspaceBoardColumnWidth({ containerWidth: 1572, columnCount: 6, capWidth: 308 })
+    ).toBe(252)
+  })
+
+  it('never grows lanes wider than the cap', () => {
+    expect(
+      fitWorkspaceBoardColumnWidth({ containerWidth: 5000, columnCount: 2, capWidth: 308 })
+    ).toBe(308)
+  })
+})
 
 describe('workspace status visuals', () => {
   it('keeps the default workflow order', () => {
