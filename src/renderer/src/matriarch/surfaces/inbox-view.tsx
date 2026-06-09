@@ -8,6 +8,7 @@ import { useBackend } from '../state/backend-context'
 import { useLiveFeed, resolveContentState } from '../state/use-live-feed'
 import { FreshnessIndicator } from '../components/freshness-indicator'
 import { EmptyState, ErrorState, Skeleton } from '../components/data-states'
+import { collectRecipients, countByType as countMessagesByType, orderInbox } from './inbox-model'
 
 const TYPE_VARIANT: Record<MessageType, 'outline' | 'secondary' | 'destructive' | 'attention'> = {
   status: 'outline',
@@ -58,26 +59,15 @@ export function InboxView({
   const messages = messagesValue ?? EMPTY_MESSAGES
 
   // Recipients drawn from the data so the filter list always resolves.
-  const recipients = useMemo(() => {
-    const set = new Set<string>()
-    for (const m of messagesValue ?? []) {
-      set.add(m.toHandle)
-      set.add(m.fromHandle)
-    }
-    return ['all', ...Array.from(set).sort()]
-  }, [messagesValue])
+  const recipients = useMemo(() => collectRecipients(messagesValue ?? []), [messagesValue])
 
-  const countByType = (t: MessageType | 'all'): number =>
-    messages.filter((m) => t === 'all' || m.type === t).length
+  const countByType = (t: MessageType | 'all'): number => countMessagesByType(messages, t)
 
-  const shown = useMemo(() => {
-    return (messagesValue ?? []).filter((m) => {
-      const matchRecipient =
-        recipient === 'all' || m.toHandle === recipient || m.fromHandle === recipient
-      const matchType = type === 'all' || m.type === type
-      return matchRecipient && matchType
-    })
-  }, [messagesValue, recipient, type])
+  // Filtered + ordered newest-first (an audit trail reads best most-recent-first).
+  const shown = useMemo(
+    () => orderInbox(messagesValue ?? [], recipient, type),
+    [messagesValue, recipient, type]
+  )
 
   const content = resolveContentState(state, (v) => v.length === 0)
 
