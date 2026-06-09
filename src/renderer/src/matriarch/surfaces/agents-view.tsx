@@ -8,8 +8,7 @@ import { useLiveFeed, resolveContentState } from '../state/use-live-feed'
 import { AgentCard } from '../components/agent-card'
 import { SegmentedControl } from '../components/segmented-control'
 import { EmptyState, ErrorState, SkeletonCards } from '../components/data-states'
-
-type AgentFilter = 'all' | 'working' | 'waiting' | 'blocked'
+import { selectAgents, shouldShowAgentType, type AgentFilter } from './agents-model'
 
 const FILTERS: { id: AgentFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -36,27 +35,13 @@ export function AgentsView({
   // memos below have a plain-identifier dependency.
   const agentsValue = state.value
   // Agent-type chip is hidden when the fleet is homogeneous (one agentType).
-  const showType = useMemo(() => {
-    const types = new Set((agentsValue ?? []).map((a) => a.agentType).filter(Boolean))
-    return types.size > 1
-  }, [agentsValue])
-
-  const shown = useMemo(() => {
-    // Coordinator first, then the rest (children).
-    const ordered = [...(agentsValue ?? [])].sort(
-      (a, b) => Number(b.isCoordinator) - Number(a.isCoordinator)
-    )
-    const q = query.trim().toLowerCase()
-    return ordered.filter((a) => {
-      const matchFilter = filter === 'all' || a.state === filter
-      const matchQuery =
-        !q ||
-        a.handle.toLowerCase().includes(q) ||
-        a.label.toLowerCase().includes(q) ||
-        a.prompt.toLowerCase().includes(q)
-      return matchFilter && matchQuery
-    })
-  }, [agentsValue, filter, query])
+  const showType = useMemo(() => shouldShowAgentType(agentsValue ?? []), [agentsValue])
+  // Order (coordinator first) + state filter + multi-field search — all in the
+  // pure, tested agents-model.
+  const shown = useMemo(
+    () => selectAgents(agentsValue ?? [], filter, query),
+    [agentsValue, filter, query]
+  )
 
   const content = resolveContentState(state, (v) => v.length === 0)
 
