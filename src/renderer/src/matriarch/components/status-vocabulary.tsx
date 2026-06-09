@@ -12,7 +12,7 @@ import {
   XCircle,
   type LucideIcon
 } from 'lucide-react'
-import type { AgentState, TaskStatus } from '../backend'
+import type { AgentState, CoordinatorRunStatus, TaskStatus } from '../backend'
 
 /** Color tone → CSS token. Color is signal only (monochrome & quiet). */
 export type Tone = 'blue' | 'red' | 'amber' | 'muted' | 'fg'
@@ -86,4 +86,18 @@ export const WORK_COLUMN_CONFIG: Record<WorkColumn, StatusConfig> = {
   'review-ship': { icon: GitPullRequest, tone: 'fg', label: 'Review & ship' },
   done: { icon: CheckCircle2, tone: 'muted', label: 'Done' },
   parked: { icon: PauseCircle, tone: 'muted', label: 'Parked' }
+}
+
+/**
+ * Coordinator run-status vocabulary for the derived run summary (Story 4.3). Only
+ * `running` reads as live (blue, pulsing dot); `failed` is red; `completed` and
+ * `idle` are quiet. `pulse` marks the status that should animate the status dot.
+ */
+export type CoordinatorStatusDisplay = { label: string; tone: Tone; pulse: boolean }
+
+export const COORDINATOR_STATUS_CONFIG: Record<CoordinatorRunStatus, CoordinatorStatusDisplay> = {
+  running: { label: 'running', tone: 'blue', pulse: true },
+  idle: { label: 'idle', tone: 'muted', pulse: false },
+  completed: { label: 'completed', tone: 'muted', pulse: false },
+  failed: { label: 'failed', tone: 'red', pulse: false }
 }

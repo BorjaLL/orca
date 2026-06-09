@@ -5,6 +5,7 @@
 import type { AgentStatusEntry } from '../../../../../shared/agent-status-types'
 import type {
   AgentSnapshot,
+  CoordinatorRunStatus,
   CoordinatorState,
   Gate,
   Message,
@@ -181,9 +182,31 @@ export function deriveCoordinatorState(tasks: Task[]): CoordinatorState {
   for (const task of tasks) {
     counts[task.status] += 1
   }
-  // Conservative + honestly labelled: "running" when any task is mid-flight.
-  const status = counts.dispatched > 0 ? 'running' : 'idle'
-  return { status, counts, activeDispatches: counts.dispatched }
+  return { status: deriveRunStatus(counts), counts, activeDispatches: counts.dispatched }
+}
+
+/**
+ * Honest run status from the task counts (there is no coordinator-status RPC):
+ * - **running** when anything is mid-flight (a dispatch is the strongest signal).
+ * - **completed** when there are tasks, nothing is in flight, none failed, and at
+ *   least one finished — the run reached the end cleanly.
+ * - **failed** when nothing is in flight, no work is left to pick up, and at least
+ *   one task failed — the run ended with an unresolved failure.
+ * - **idle** otherwise (no tasks, or only queued/blocked work waiting to start).
+ * `blocked` keeps the run idle (it is waiting on a human, not actively working).
+ */
+function deriveRunStatus(counts: Record<TaskStatus, number>): CoordinatorRunStatus {
+  if (counts.dispatched > 0) {
+    return 'running'
+  }
+  const queued = counts.pending + counts.ready
+  if (counts.failed > 0 && queued === 0) {
+    return 'failed'
+  }
+  if (counts.completed > 0 && counts.failed === 0 && queued === 0 && counts.blocked === 0) {
+    return 'completed'
+  }
+  return 'idle'
 }
 
 /** Best-effort status timeline for the detail Sheet from a task's terminal state. */

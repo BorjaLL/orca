@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { deriveNeedsAttention } from './needs-attention'
-import type { Gate, Message, Task } from '../backend'
+import type { AgentSnapshot, Gate, Message, Task } from '../backend'
+
+const agent = (o: Partial<AgentSnapshot> = {}): AgentSnapshot => ({
+  handle: 'term_a',
+  paneKey: 'tab1:pane1',
+  label: 'Agent A',
+  state: 'working',
+  prompt: '',
+  stateStartedAt: 0,
+  updatedAt: 0,
+  isCoordinator: false,
+  ...o
+})
 
 describe('deriveNeedsAttention', () => {
   it('surfaces pending gates, escalations, failed and blocked tasks', () => {
@@ -88,5 +100,103 @@ describe('deriveNeedsAttention', () => {
     })
     expect(items[0].taskId).toBe('t_x')
     expect(items[0].handle).toBe('term_3b')
+  })
+})
+
+describe('deriveNeedsAttention — live agents (PRD Story 2.4)', () => {
+  it('surfaces a waiting agent as amber and a blocked agent as red', () => {
+    const items = deriveNeedsAttention({
+      agents: [
+        agent({
+          handle: 'term_w',
+          paneKey: 'p:w',
+          state: 'waiting',
+          lastAssistantMessage: 'need a key'
+        }),
+        agent({
+          handle: 'term_b',
+          paneKey: 'p:b',
+          state: 'blocked',
+          toolName: 'Bash',
+          toolInput: 'pnpm i'
+        })
+      ]
+    })
+    const waiting = items.find((i) => i.id === 'agent:p:w')
+    const blocked = items.find((i) => i.id === 'agent:p:b')
+    expect(waiting).toMatchObject({ kind: 'waiting-agent', tone: 'amber', title: 'Agent waiting' })
+    expect(waiting?.body).toBe('need a key')
+    expect(blocked).toMatchObject({ kind: 'waiting-agent', tone: 'red', title: 'Agent blocked' })
+    // Tool-using agents read their activity from the tool, not the message.
+    expect(blocked?.body).toBe('Bash · pnpm i')
+  })
+
+  it('ignores working/done/idle agents and the coordinator', () => {
+    const items = deriveNeedsAttention({
+      agents: [
+        agent({ paneKey: 'p:1', state: 'working' }),
+        agent({ paneKey: 'p:2', state: 'done' }),
+        agent({ paneKey: 'p:3', state: 'idle' }),
+        agent({ paneKey: 'p:4', state: 'waiting', isCoordinator: true })
+      ]
+    })
+    expect(items).toEqual([])
+  })
+
+  it('does not double-surface an agent whose handle already shows a blocked/failed task', () => {
+    const items = deriveNeedsAttention({
+      tasks: [
+        {
+          id: 't1',
+          title: 'blocked task',
+          spec: 's',
+          status: 'blocked',
+          deps: [],
+          assigneeHandle: 'term_x'
+        }
+      ],
+      agents: [agent({ handle: 'term_x', paneKey: 'p:x', state: 'waiting' })]
+    })
+    // The task row carries the incident; the agent on the same handle is suppressed.
+    expect(items.map((i) => i.id)).toEqual(['task-blocked:t1'])
+  })
+
+  it('still surfaces an agent on a different handle than any task incident', () => {
+    const items = deriveNeedsAttention({
+      tasks: [
+        {
+          id: 't1',
+          title: 'blocked',
+          spec: 's',
+          status: 'blocked',
+          deps: [],
+          assigneeHandle: 'term_x'
+        }
+      ],
+      agents: [agent({ handle: 'term_y', paneKey: 'p:y', state: 'blocked' })]
+    })
+    expect(items.map((i) => i.id).sort()).toEqual(['agent:p:y', 'task-blocked:t1'])
+  })
+
+  it('sorts a red blocked-agent above an amber waiting-agent', () => {
+    const items = deriveNeedsAttention({
+      agents: [
+        agent({ paneKey: 'p:w', state: 'waiting' }),
+        agent({ paneKey: 'p:b', state: 'blocked' })
+      ]
+    })
+    expect(items[0].tone).toBe('red')
+    expect(items.at(-1)?.tone).toBe('amber')
+  })
+
+  it('falls back to label then handle for the body when no activity is present', () => {
+    const labelled = deriveNeedsAttention({
+      agents: [agent({ paneKey: 'p:1', state: 'waiting', label: 'Wire the board', prompt: '' })]
+    })
+    expect(labelled[0].body).toBe('Wire the board')
+    const bare = deriveNeedsAttention({
+      agents: [agent({ handle: 'term_z', paneKey: 'p:2', state: 'waiting', label: '', prompt: '' })]
+    })
+    expect(bare[0].body).toBe('term_z')
   })
 })

@@ -1,4 +1,7 @@
-// The run_7a3 scenario — "Ship 4 small Orca PRs" — mirrored from the design
+/* oxlint-disable max-lines -- Why: a single cross-linked design fixture (tasks +
+   agents + gates + messages for the run_7a3 scenario) read as one unit; splitting
+   it would scatter the cross-references that make every UI link resolve. */
+// The run_7a3 scenario - "Ship 4 small Orca PRs" - mirrored from the design
 // pack's mock data (matriarch-portal-mock-data.md / the prototype's data.jsx).
 // Cross-linked tasks ↔ agents ↔ gates ↔ messages so every UI link resolves.
 // Fleet is all-claude here, so the agent-type chip auto-hides (homogeneous).

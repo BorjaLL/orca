@@ -1,13 +1,28 @@
 import { useMemo } from 'react'
 import { useBackend } from '../state/backend-context'
 import { useLiveFeed } from '../state/use-live-feed'
-import { BOARD_COLUMN_ORDER, TASK_STATUS_CONFIG, TONE_CLASS } from './status-vocabulary'
+import {
+  BOARD_COLUMN_ORDER,
+  COORDINATOR_STATUS_CONFIG,
+  TASK_STATUS_CONFIG,
+  TONE_CLASS
+} from './status-vocabulary'
 import { cn } from '@/lib/utils'
 
+/** Dot background per tone (TONE_CLASS is text-only; the status dot needs a fill). */
+const DOT_BG: Record<string, string> = {
+  blue: 'bg-chart-2',
+  red: 'bg-destructive',
+  amber: 'bg-attention',
+  muted: 'bg-muted-foreground',
+  fg: 'bg-foreground'
+}
+
 /**
- * The derived coordinator run summary (PRD Story 4.3): running/idle + counts by
- * task status + active dispatches. Shown in the coordinator's detail Sheet.
- * Honestly labelled "derived" — there is no coordinator-status RPC.
+ * The derived coordinator run summary (PRD Story 4.3): run status (running / idle /
+ * completed / failed) + counts by task status + active dispatches. Shown in the
+ * coordinator's detail Sheet. Honestly labelled "derived" — there is no
+ * coordinator-status RPC; the status is inferred from the task counts.
  */
 export function CoordinatorSummary(): React.JSX.Element | null {
   const { backend } = useBackend()
@@ -17,7 +32,7 @@ export function CoordinatorSummary(): React.JSX.Element | null {
   if (!coordinator) {
     return null
   }
-  const running = coordinator.status === 'running'
+  const status = COORDINATOR_STATUS_CONFIG[coordinator.status]
   return (
     <section className="flex flex-col gap-2.5">
       <span className="text-[11px] font-semibold tracking-[0.05em] text-muted-foreground uppercase">
@@ -25,16 +40,17 @@ export function CoordinatorSummary(): React.JSX.Element | null {
       </span>
       <div className="flex items-center gap-2 text-[13px]">
         <span
-          className={cn(
-            'inline-flex items-center gap-1.5 font-semibold',
-            running ? 'text-chart-2' : 'text-muted-foreground'
-          )}
+          className={cn('inline-flex items-center gap-1.5 font-semibold', TONE_CLASS[status.tone])}
         >
           <span
-            className={cn('size-2 rounded-full', running ? 'bg-chart-2' : 'bg-muted-foreground')}
+            className={cn(
+              'size-2 rounded-full',
+              DOT_BG[status.tone],
+              status.pulse && 'animate-pulse'
+            )}
             aria-hidden
           />
-          {running ? 'running' : 'idle'}
+          {status.label}
         </span>
         <span className="text-muted-foreground">
           · {coordinator.activeDispatches} active dispatch

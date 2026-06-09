@@ -8,6 +8,7 @@ export type {
 export type {
   AgentSnapshot,
   AgentState,
+  CoordinatorRunStatus,
   CoordinatorState,
   Gate,
   GateStatus,

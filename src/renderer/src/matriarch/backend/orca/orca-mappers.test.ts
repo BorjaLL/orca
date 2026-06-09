@@ -13,6 +13,7 @@ import {
   mapTask,
   mapTerminalSummary,
   parseStringArray,
+  shortBranchName,
   type AgentMapContext
 } from './orca-mappers'
 import type {
@@ -223,6 +224,64 @@ describe('deriveCoordinatorState', () => {
   it('is idle when nothing is dispatched', () => {
     const tasks = [{ status: 'completed' }, { status: 'pending' }] as Task[]
     expect(deriveCoordinatorState(tasks).status).toBe('idle')
+  })
+
+  it('is completed when every task finished cleanly (none in flight, none failed)', () => {
+    const tasks = [{ status: 'completed' }, { status: 'completed' }] as Task[]
+    expect(deriveCoordinatorState(tasks).status).toBe('completed')
+  })
+
+  it('is failed when work ended with an unresolved failure and nothing queued', () => {
+    const tasks = [{ status: 'failed' }, { status: 'completed' }] as Task[]
+    expect(deriveCoordinatorState(tasks).status).toBe('failed')
+  })
+
+  it('stays running over a failed task while a dispatch is still in flight', () => {
+    const tasks = [{ status: 'failed' }, { status: 'dispatched' }] as Task[]
+    expect(deriveCoordinatorState(tasks).status).toBe('running')
+  })
+
+  it('a failure with queued work to retry reads idle, not failed', () => {
+    const tasks = [{ status: 'failed' }, { status: 'ready' }] as Task[]
+    expect(deriveCoordinatorState(tasks).status).toBe('idle')
+  })
+
+  it('a blocked task keeps the run idle, not completed', () => {
+    const tasks = [{ status: 'completed' }, { status: 'blocked' }] as Task[]
+    expect(deriveCoordinatorState(tasks).status).toBe('idle')
+  })
+
+  it('an empty board is idle with zeroed counts', () => {
+    const state = deriveCoordinatorState([])
+    expect(state.status).toBe('idle')
+    expect(state.activeDispatches).toBe(0)
+    expect(state.counts).toEqual({
+      pending: 0,
+      ready: 0,
+      dispatched: 0,
+      completed: 0,
+      failed: 0,
+      blocked: 0
+    })
+  })
+})
+
+describe('shortBranchName', () => {
+  it('strips the refs/heads/ prefix', () => {
+    expect(shortBranchName('refs/heads/main')).toBe('main')
+    expect(shortBranchName('refs/heads/BorjaLL/matriarch-web-portal')).toBe(
+      'BorjaLL/matriarch-web-portal'
+    )
+  })
+  it('leaves an already-short branch intact and trims whitespace', () => {
+    expect(shortBranchName('feature/x')).toBe('feature/x')
+    expect(shortBranchName('  main  ')).toBe('main')
+  })
+  it('returns undefined for empty/whitespace/missing input', () => {
+    expect(shortBranchName(undefined)).toBeUndefined()
+    expect(shortBranchName('')).toBeUndefined()
+    expect(shortBranchName('   ')).toBeUndefined()
+    expect(shortBranchName('refs/heads/')).toBeUndefined()
   })
 })
 
