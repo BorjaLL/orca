@@ -5,6 +5,7 @@ import type {
   RuntimeTerminalListResult,
   RuntimeTerminalRead,
   RuntimeTerminalRename,
+  RuntimeTerminalNote,
   RuntimeTerminalSend,
   RuntimeTerminalShow,
   RuntimeTerminalSplit,
@@ -19,6 +20,7 @@ import {
   formatTerminalList,
   formatTerminalRead,
   formatTerminalRename,
+  formatTerminalNote,
   formatTerminalSend,
   formatTerminalShow,
   formatTerminalSplit,
@@ -121,6 +123,13 @@ export const TERMINAL_HANDLERS: Record<string, CommandHandler> = {
       title: getOptionalStringFlag(flags, 'title') ?? null
     })
     printResult(result, json, formatTerminalRename)
+  },
+  'terminal note': async ({ flags, client, cwd, json }) => {
+    const result = await client.call<{ note: RuntimeTerminalNote }>('terminal.setNote', {
+      terminal: await getTerminalHandle(flags, cwd, client),
+      note: getOptionalStringFlag(flags, 'note') ?? ''
+    })
+    printResult(result, json, formatTerminalNote)
   },
   'terminal create': async ({ flags, client, cwd, json }) => {
     if (client.isRemote && !flags.has('worktree')) {

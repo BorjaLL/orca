@@ -215,6 +215,8 @@ orca terminal create --worktree path:/projects/myapp --command "npm test" --json
 orca terminal split --terminal <handle> --direction vertical --json
 orca terminal split --terminal <handle> --direction horizontal --command "npm run dev" --json
 orca terminal rename --terminal <handle> --title "New Name" --json
+orca terminal note "reworking the board layout" --json
+orca terminal note --terminal <handle> --note "running integration tests" --json
 orca terminal switch --terminal <handle> --json
 orca terminal close --terminal <handle> --json
 orca terminal send --text "echo hello" --enter --json
@@ -228,6 +230,8 @@ Why: `terminal create` creates a background session unless `--focus` is explicit
 Why: long terminal transcripts should be read with cursors. After a limited tail preview without an input cursor, page retained transcript from `oldestCursor`; in that case `nextCursor` already equals `latestCursor` and would skip omitted output. After a cursor read, if `limited` remains true and `nextCursor !== latestCursor`, continue with the returned `nextCursor`. Cursor reads default to the retained transcript size; `--limit` can request a smaller page. If `truncated` is true, older output has already fallen out of the retained buffer; use `oldestCursor` as the earliest available cursor.
 
 Why: terminal handles are runtime-scoped and may go stale after reloads. If Orca returns `terminal_handle_stale`, reacquire a fresh handle with `terminal list`.
+
+Why: `terminal note` sets a one-line "what I'm working on" note **for this specific terminal/pane** — it surfaces directly on each card in the Matriarch board. It is distinct from the worktree comment (`worktree set --comment`, which is workspace-level): use the worktree comment for the workspace's overall status, and the terminal note for what *this pane* is doing right now. Omitting the text (or passing an empty string) clears it.
 
 Why: `--direction horizontal` splits the pane **left and right** (new pane appears to the right). `--direction vertical` splits the pane **top and bottom** (new pane appears below). This matches VS Code's split convention. Default is horizontal.
 
@@ -248,6 +252,7 @@ Why: `--direction horizontal` splits the pane **left and right** (new pane appea
 - If that direct update fails because Orca is unavailable or the shell is not inside an Orca-managed worktree, continue the main task and treat the comment update as best-effort unless the user explicitly made Orca state part of the task.
 - Use `orca worktree current --json` only when the agent actually needs the worktree identity for later logic, not as a preflight before every comment update.
 - Orca only injects `ORCA_WORKTREE_PATH`-style variables for some setup-hook flows, so they are not a general detection contract for agents.
+- Treat `orca terminal note "<short status>"` as a default coding-agent behavior: when running inside an Orca terminal, keep this pane's note current at meaningful checkpoints (same cadence as the worktree comment) so the Matriarch board shows what this terminal is doing. The note targets the active terminal when `--terminal` is omitted; treat it as best-effort if Orca is unavailable.
 - Use `terminal list` to reacquire handles after Orca reloads.
 - Use `terminal read` before `terminal send` unless the next input is obvious.
 - For long agent responses, use `terminal read --json` with `oldestCursor`, `nextCursor`, `--cursor`, and `--limit` instead of relying on the default human preview. After a limited tail preview, start at `oldestCursor`; after a cursor read, continue with `nextCursor` only while `limited` is true and `nextCursor !== latestCursor`. Treat `truncated` as a signal that the requested cursor was older than the retained output.

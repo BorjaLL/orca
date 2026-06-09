@@ -330,6 +330,21 @@ function registerRuntimeWindowLifecycle(
     renameTerminal: (tabId, title) => send('ui:renameTerminal', { tabId, title }),
     focusTerminal: (tabId, worktreeId, leafId) =>
       send('ui:focusTerminal', { tabId, worktreeId, leafId }),
+    focusMainWindow: () => {
+      if (mainWindow.isDestroyed()) {
+        return
+      }
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore()
+      }
+      mainWindow.show()
+      mainWindow.focus()
+      // Why: macOS leaves a background app behind the foreground one; show()/focus()
+      // alone won't raise Orca over the browser the portal is viewed in.
+      if (process.platform === 'darwin') {
+        app.focus({ steal: true })
+      }
+    },
     focusEditorTab: (tabId, worktreeId) => send('ui:focusEditorTab', { tabId, worktreeId }),
     closeSessionTab: (tabId, worktreeId) => send('ui:closeSessionTab', { tabId, worktreeId }),
     moveSessionTab: (worktreeId: string, move: RuntimeMobileSessionTabMove) =>

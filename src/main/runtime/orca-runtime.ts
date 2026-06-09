@@ -108,6 +108,7 @@ import type {
   RuntimeRepoSearchRefs,
   RuntimeTerminalRead,
   RuntimeTerminalRename,
+  RuntimeTerminalNote,
   RuntimeTerminalSend,
   RuntimeTerminalCreate,
   RuntimeTerminalSplit,
@@ -546,6 +547,9 @@ type RuntimeLeafRecord = RuntimeSyncedLeaf & {
   tailTruncated: boolean
   tailLinesTotal: number
   preview: string
+  // Why: agent-set "what I'm working on" note (terminal.setNote). In-memory like
+  // `preview`; absent until written. Surfaced per terminal on the Matriarch board.
+  note?: string
   lastAgentStatus: AgentStatus | null
   // Why: the most recent OSC title observed on this leaf's PTY data. Used by
   // worktree.ps so daemon-hosted terminals (no renderer pushing pane titles)
@@ -598,6 +602,9 @@ type RuntimePtyWorktreeRecord = {
   tailTruncated: boolean
   tailLinesTotal: number
   preview: string
+  // Why: agent-set "what I'm working on" note (terminal.setNote), in-memory like
+  // `preview`. Mirrors the leaf record so background CLI PTYs carry it too.
+  note?: string
 }
 
 type RuntimeHeadlessTerminal = {
@@ -684,6 +691,10 @@ type RuntimeNotifier = {
   ): void
   renameTerminal(tabId: string, title: string | null): void
   focusTerminal(tabId: string, worktreeId: string, leafId?: string | null): void
+  // Why: a remote caller (e.g. the Matriarch web portal) revealing a pane needs
+  // the desktop window raised to the foreground too, else the tab is selected
+  // behind whatever the user is looking at. No-op on headless/SSH (optional).
+  focusMainWindow?(): void
   focusEditorTab?(tabId: string, worktreeId: string): void
   closeSessionTab?(tabId: string, worktreeId: string): void
   moveSessionTab?(worktreeId: string, move: RuntimeMobileSessionTabMove): void
@@ -4595,8 +4606,8 @@ export class OrcaRuntimeService {
       }
     }
 
-    const terminals: RuntimeTerminalSummary[] = []
     const ptyIdsFromLeaves = new Set<string>()
+    const leavesToList: RuntimeLeafRecord[] = []
     for (const leaf of this.leaves.values()) {
       if (targetWorktreeId && leaf.worktreeId !== targetWorktreeId) {
         continue
@@ -4607,12 +4618,13 @@ export class OrcaRuntimeService {
       if (leaf.ptyId) {
         ptyIdsFromLeaves.add(leaf.ptyId)
       }
-      terminals.push(this.buildTerminalSummary(leaf, worktreesById))
+      leavesToList.push(leaf)
     }
 
     // Why: worktree.ps can classify active worktrees from PTY records even when
     // the renderer graph is missing a leaf. terminal.list needs the same fallback
     // so mobile does not show a false "No terminals" create flow.
+    const ptysToList: RuntimePtyWorktreeRecord[] = []
     for (const pty of this.ptysById.values()) {
       if (!pty.connected || ptyIdsFromLeaves.has(pty.ptyId)) {
         continue
@@ -4620,8 +4632,15 @@ export class OrcaRuntimeService {
       if (targetWorktreeId && pty.worktreeId !== targetWorktreeId) {
         continue
       }
-      terminals.push(this.buildPtyTerminalSummary(pty, worktreesById))
+      ptysToList.push(pty)
     }
+
+    // Build summaries in parallel: each carries a hasRunningProcess probe that is
+    // a relay round-trip over SSH, so fan them out rather than awaiting serially.
+    const terminals: RuntimeTerminalSummary[] = await Promise.all([
+      ...leavesToList.map((leaf) => this.buildTerminalSummary(leaf, worktreesById)),
+      ...ptysToList.map((pty) => this.buildPtyTerminalSummary(pty, worktreesById))
+    ])
 
     return {
       terminals: terminals.slice(0, limit),
@@ -4672,14 +4691,14 @@ export class OrcaRuntimeService {
     const pty = this.getLivePtyForHandle(handle)
     if (pty) {
       return {
-        ...this.buildPtyTerminalSummary(pty.pty, worktreesById),
+        ...(await this.buildPtyTerminalSummary(pty.pty, worktreesById)),
         paneRuntimeId: -1,
         ptyId: pty.pty.ptyId,
         rendererGraphEpoch: this.rendererGraphEpoch
       }
     }
     const { leaf } = this.getLiveLeafForHandle(handle)
-    const summary = this.buildTerminalSummary(leaf, worktreesById)
+    const summary = await this.buildTerminalSummary(leaf, worktreesById)
     return {
       ...summary,
       paneRuntimeId: leaf.paneRuntimeId,
@@ -9171,6 +9190,22 @@ export class OrcaRuntimeService {
     return { handle, tabId: leaf.tabId, title }
   }
 
+  // Why: the Matriarch board shows one line per terminal of "what Claude is
+  // working on". Agents set it via `orca terminal note`; stored in-memory on the
+  // pane record (like `preview`) and surfaced by terminal.list. Empty clears it.
+  async setTerminalNote(handle: string, note: string): Promise<RuntimeTerminalNote> {
+    this.assertGraphReady()
+    const next = note ?? ''
+    const pty = this.getLivePtyForHandle(handle)
+    if (pty) {
+      pty.pty.note = next
+      return { handle, note: next }
+    }
+    const { leaf } = this.getLiveLeafForHandle(handle)
+    leaf.note = next
+    return { handle, note: next }
+  }
+
   async createTerminal(
     worktreeSelector?: string,
     opts: {
@@ -9665,6 +9700,7 @@ export class OrcaRuntimeService {
         ...(pty.pty.tabId !== null ? { tabId: pty.pty.tabId } : {}),
         ...(parsedPaneKey ? { leafId: parsedPaneKey.leafId } : {})
       })
+      this.notifier?.focusMainWindow?.()
       return {
         handle,
         tabId: revealed?.tabId ?? pty.pty.tabId ?? pty.record.tabId,
@@ -9673,6 +9709,7 @@ export class OrcaRuntimeService {
     }
     const { leaf } = this.getLiveLeafForHandle(handle)
     this.notifier?.focusTerminal(leaf.tabId, leaf.worktreeId, leaf.leafId)
+    this.notifier?.focusMainWindow?.()
     return { handle, tabId: leaf.tabId, worktreeId: leaf.worktreeId }
   }
 
@@ -10751,10 +10788,10 @@ export class OrcaRuntimeService {
     return resolved ? (summaries.get(resolved.id) ?? null) : null
   }
 
-  private buildTerminalSummary(
+  private async buildTerminalSummary(
     leaf: RuntimeLeafRecord,
     worktreesById: Map<string, ResolvedWorktree>
-  ): RuntimeTerminalSummary {
+  ): Promise<RuntimeTerminalSummary> {
     const worktree = worktreesById.get(leaf.worktreeId)
     const tab = this.tabs.get(leaf.tabId) ?? null
 
@@ -10769,8 +10806,20 @@ export class OrcaRuntimeService {
       connected: leaf.connected,
       writable: leaf.writable,
       lastOutputAt: leaf.lastOutputAt,
-      preview: leaf.preview
+      preview: leaf.preview,
+      note: leaf.note ?? '',
+      hasRunningProcess: await this.detectRunningProcess(leaf.ptyId)
     }
+  }
+
+  // Why: a foreground process other than the shell means the pane is busy. Cheap
+  // in-memory check locally; one relay round-trip per PTY over SSH (callers
+  // parallelize). Defaults to false when there is no PTY or the check fails.
+  private async detectRunningProcess(ptyId: string | null): Promise<boolean> {
+    if (!ptyId || !this.ptyController) {
+      return false
+    }
+    return (await this.ptyController.hasChildProcesses?.(ptyId).catch(() => false)) ?? false
   }
 
   private syncMobileSessionTabs(snapshots: RuntimeMobileSessionTabsSnapshot[] | undefined): void {
@@ -11318,10 +11367,10 @@ export class OrcaRuntimeService {
     }
   }
 
-  private buildPtyTerminalSummary(
+  private async buildPtyTerminalSummary(
     pty: RuntimePtyWorktreeRecord,
     worktreesById: Map<string, ResolvedWorktree>
-  ): RuntimeTerminalSummary {
+  ): Promise<RuntimeTerminalSummary> {
     const worktree = worktreesById.get(pty.worktreeId)
 
     return {
@@ -11335,7 +11384,9 @@ export class OrcaRuntimeService {
       connected: pty.connected,
       writable: pty.connected,
       lastOutputAt: pty.lastOutputAt,
-      preview: pty.preview
+      preview: pty.preview,
+      note: pty.note ?? '',
+      hasRunningProcess: await this.detectRunningProcess(pty.ptyId)
     }
   }
 

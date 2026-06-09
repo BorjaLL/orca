@@ -85,6 +85,11 @@
   --color-git-graph-lane-4: var(--git-graph-lane-4);
   --color-git-graph-lane-5: var(--git-graph-lane-5);
   --color-annotation-highlight: var(--annotation-highlight);
+  /* Why: the Matriarch Portal's one net-new semantic color — "needs a human"
+     (waiting / blocked-on-gate / escalation). Orca has no warning token; red is
+     destructive. Additive, unused by the editor. See matriarch-portal docs. */
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -120,6 +125,8 @@
   --accent-foreground: #171717;
   --destructive: #e40014;
   --destructive-foreground: #fcf3f3;
+  --attention: #f59e0b;
+  --attention-foreground: #1a1205;
   --border: #e5e5e5;
   --input: #e5e5e5;
   --ring: #a1a1a1;
@@ -189,6 +196,8 @@
   --accent-foreground: #fafafa;
   --destructive: #ff6568;
   --destructive-foreground: #df2225;
+  --attention: #fbbf24;
+  --attention-foreground: #1a1205;
   --border: rgb(255 255 255 / 0.07);
   --input: rgb(255 255 255 / 0.15);
   --ring: #737373;

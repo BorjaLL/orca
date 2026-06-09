@@ -35,6 +35,8 @@
     "dev": "pnpm run ensure:electron-runtime && node config/scripts/run-electron-vite-dev.mjs",
     "dev-stable-name": "pnpm run ensure:electron-runtime && node config/scripts/run-electron-vite-dev.mjs --stable-name",
     "dev:web": "vite --config vite.web.config.ts --host 127.0.0.1",
+    "dev:matriarch": "vite --config vite.matriarch.config.ts --host 127.0.0.1",
+    "build:matriarch": "vite build --config vite.matriarch.config.ts",
     "build:relay": "node config/scripts/build-relay.mjs",
     "build:computer-macos": "node config/scripts/build-computer-macos.mjs",
     "smoke:computer": "node config/scripts/computer-use-smoke.mjs",

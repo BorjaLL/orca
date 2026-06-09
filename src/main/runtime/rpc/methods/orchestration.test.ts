@@ -103,7 +103,9 @@ describe('orchestration RPC methods', () => {
         connected: opts.connected ?? true,
         writable: opts.writable ?? true,
         lastOutputAt: opts.lastOutputAt ?? null,
-        preview: opts.preview ?? ''
+        preview: opts.preview ?? '',
+        note: opts.note ?? '',
+        hasRunningProcess: opts.hasRunningProcess ?? false
       }
     }
 

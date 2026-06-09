@@ -1,7 +1,12 @@
 /* oxlint-disable max-lines -- Why: terminal RPC methods are co-located for discoverability; splitting would scatter related handlers across files. */
 import { z } from 'zod'
 import { defineMethod, defineStreamingMethod, type RpcAnyMethod } from '../core'
-import { OptionalFiniteNumber, OptionalString, requiredString } from '../schemas'
+import {
+  OptionalFiniteNumber,
+  OptionalPlainString,
+  OptionalString,
+  requiredString
+} from '../schemas'
 import type { DriverState, OrcaRuntimeService } from '../../orca-runtime'
 import {
   TerminalStreamOpcode,
@@ -291,6 +296,12 @@ const TerminalRename = TerminalHandle.extend({
   })
 })
 
+// Why: empty string is a meaningful update (clears the note), so preserve it
+// (OptionalPlainString), mirroring worktree.set's `comment`.
+const TerminalSetNote = TerminalHandle.extend({
+  note: OptionalPlainString
+})
+
 const TerminalSend = TerminalHandle.extend({
   text: OptionalString,
   enter: z.unknown().optional(),
@@ -498,6 +509,13 @@ export const TERMINAL_METHODS: RpcAnyMethod[] = [
     params: TerminalRename,
     handler: async (params, { runtime }) => ({
       rename: await runtime.renameTerminal(params.terminal, params.title || null)
+    })
+  }),
+  defineMethod({
+    name: 'terminal.setNote',
+    params: TerminalSetNote,
+    handler: async (params, { runtime }) => ({
+      note: await runtime.setTerminalNote(params.terminal, params.note ?? '')
     })
   }),
   defineMethod({

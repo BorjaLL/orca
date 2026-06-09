@@ -35,6 +35,9 @@ package-lock.json
 .env.local
 .env.*.local
 
+# Matriarch Portal local pairing offer (loopback runtime token; never commit)
+.matriarch-pairing.local
+
 # IDE
 .vscode/
 .idea/

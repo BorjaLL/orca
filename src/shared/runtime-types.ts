@@ -299,6 +299,13 @@ export type RuntimeTerminalSummary = {
   writable: boolean
   lastOutputAt: number | null
   preview: string
+  // Why: agent-set one-line "what I'm working on" note, surfaced per terminal on
+  // the Matriarch board. Empty when no note has been set for the pane.
+  note: string
+  // Why: a live foreground process distinct from the shell. The Matriarch board
+  // treats this as "working" even when the pane's agent reports done (a finished
+  // agent may leave a long-running command running). False when no PTY.
+  hasRunningProcess: boolean
 }
 
 export type RuntimeTerminalListResult = {
@@ -331,6 +338,11 @@ export type RuntimeTerminalRename = {
   handle: string
   tabId: string
   title: string | null
+}
+
+export type RuntimeTerminalNote = {
+  handle: string
+  note: string
 }
 
 export type RuntimeTerminalSend = {

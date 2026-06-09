@@ -243,6 +243,19 @@ export const CORE_COMMAND_SPECS: CommandSpec[] = [
     ]
   },
   {
+    path: ['terminal', 'note'],
+    summary: "Set or clear this terminal's working note (shown on the Matriarch board)",
+    usage: 'orca terminal note [<text>] [--terminal <handle>] [--note <text>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'terminal', 'note'],
+    positionalArgs: ['note'],
+    notes: ['Omit the text (or pass an empty string) to clear the note.'],
+    examples: [
+      'orca terminal note "reworking the board layout"',
+      'orca terminal note --terminal term_abc123 --note "running tests"',
+      'orca terminal note --terminal term_abc123 --json'
+    ]
+  },
+  {
     path: ['terminal', 'split'],
     summary: 'Split an existing terminal pane',
     usage:

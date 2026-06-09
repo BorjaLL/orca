@@ -829,12 +829,90 @@ describe('OrcaRuntimeService', () => {
       worktreeId: 'repo-1::/tmp/worktree-a',
       branch: 'feature/foo',
       title: 'Claude',
-      preview: 'hello from terminal'
+      preview: 'hello from terminal',
+      // No ptyController wired here → no foreground-process probe → false.
+      hasRunningProcess: false
     })
 
     const shown = await runtime.showTerminal(terminals.terminals[0].handle)
     expect(shown.handle).toBe(terminals.terminals[0].handle)
     expect(shown.ptyId).toBe('pty-1')
+  })
+
+  it('flags hasRunningProcess when the pane has a live foreground process', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => 'yt-dlp',
+      hasChildProcesses: async () => true
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-1',
+          worktreeId: 'repo-1::/tmp/worktree-a',
+          title: 'Claude',
+          activeLeafId: 'pane:1',
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab-1',
+          worktreeId: 'repo-1::/tmp/worktree-a',
+          leafId: 'pane:1',
+          paneRuntimeId: 1,
+          ptyId: 'pty-1'
+        }
+      ]
+    })
+    const terminals = await runtime.listTerminals()
+    expect(terminals.terminals[0].hasRunningProcess).toBe(true)
+  })
+
+  it('focusTerminal brings the desktop window to the foreground', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    const focusMainWindow = vi.fn()
+    runtime.setNotifier({
+      worktreesChanged: vi.fn(),
+      reposChanged: vi.fn(),
+      activateWorktree: vi.fn(),
+      createTerminal: vi.fn(),
+      splitTerminal: vi.fn(),
+      renameTerminal: vi.fn(),
+      focusTerminal: vi.fn(),
+      focusMainWindow,
+      closeTerminal: vi.fn(),
+      sleepWorktree: vi.fn(),
+      terminalFitOverrideChanged: vi.fn(),
+      terminalDriverChanged: vi.fn()
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'tab-1',
+          worktreeId: 'repo-1::/tmp/worktree-a',
+          title: 'Claude',
+          activeLeafId: 'pane:1',
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'tab-1',
+          worktreeId: 'repo-1::/tmp/worktree-a',
+          leafId: 'pane:1',
+          paneRuntimeId: 1,
+          ptyId: 'pty-1'
+        }
+      ]
+    })
+    const { terminals } = await runtime.listTerminals()
+    await runtime.focusTerminal(terminals[0].handle)
+    expect(focusMainWindow).toHaveBeenCalled()
   })
 
   it('routes PTY output through the PTY leaf index in large terminal graphs', () => {
