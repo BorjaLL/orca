@@ -3,13 +3,13 @@ import { cn } from '@/lib/utils'
 import type { ConnectionState } from '../backend'
 import { formatAgo, useNow } from '../state/use-now'
 import { LiveDot } from './live-dot'
-
-const STALE_AFTER_MS = 12_000
+import { resolveFreshness } from './freshness'
 
 /**
  * The shell's honest connection + freshness expression. Resolves, in priority
  * order: Disconnected/Reconnecting → Live (push + fresh) → Stale (overdue) →
- * polled "updated Ns ago · poll". Never labels polled data as "live".
+ * polled "updated Ns ago · poll". Never labels polled data as "live". The
+ * priority ladder itself lives in `resolveFreshness` (pure, unit-tested).
  */
 export function FreshnessIndicator({
   connectionState,
@@ -27,8 +27,15 @@ export function FreshnessIndicator({
   className?: string
 }): React.JSX.Element {
   const now = useNow(1000)
+  const { mode, overdue } = resolveFreshness({
+    connectionState,
+    isLive,
+    updatedAt,
+    now,
+    pollIntervalMs
+  })
 
-  if (connectionState === 'disconnected' || connectionState === 'reconnecting') {
+  if (mode === 'reconnecting') {
     return (
       <span className={cn('inline-flex items-center gap-1.5 text-xs text-attention', className)}>
         <WifiOff className="size-3.5" aria-hidden />
@@ -36,7 +43,7 @@ export function FreshnessIndicator({
       </span>
     )
   }
-  if (connectionState === 'connecting' || updatedAt === null) {
+  if (mode === 'connecting') {
     return (
       <span
         className={cn('inline-flex items-center gap-1.5 text-xs text-muted-foreground', className)}
@@ -47,11 +54,9 @@ export function FreshnessIndicator({
     )
   }
 
-  const ageMs = now - updatedAt
-  const ago = formatAgo(updatedAt, now)
+  const ago = formatAgo(updatedAt as number, now)
 
-  // Live only when the feed truly pushes AND the data is fresh.
-  if (isLive && ageMs < STALE_AFTER_MS) {
+  if (mode === 'live') {
     return (
       <span className={cn('inline-flex items-center gap-1.5 text-xs text-foreground', className)}>
         <LiveDot />
@@ -60,7 +65,6 @@ export function FreshnessIndicator({
     )
   }
 
-  const overdue = pollIntervalMs ? ageMs > pollIntervalMs * 3 : ageMs > STALE_AFTER_MS
   return (
     <span
       className={cn(

@@ -8,14 +8,16 @@ import { useLiveFeed, type ContentState } from '../state/use-live-feed'
 import { useNow } from '../state/use-now'
 import { buildWorkItems, type WorkItem } from '../state/work-items'
 import { WorkItemCard } from '../components/work-item-card'
-import {
-  TONE_CLASS,
-  WORK_COLUMN_CONFIG,
-  WORK_COLUMN_ORDER,
-  type WorkColumn
-} from '../components/status-vocabulary'
+import { TONE_CLASS, WORK_COLUMN_CONFIG, WORK_COLUMN_ORDER } from '../components/status-vocabulary'
 import { FreshnessIndicator } from '../components/freshness-indicator'
 import { EmptyState, ErrorState, Skeleton } from '../components/data-states'
+import {
+  combineFreshness,
+  deriveBoardContentState,
+  firstErrorMessage,
+  groupByColumn,
+  summarizeEdges
+} from './board-model'
 
 /**
  * The unified command Board: one card per unit of work — orchestration tasks AND
@@ -54,51 +56,18 @@ export function BoardView({
     [tasksState.value, agentsState.value, terminalsState.value, now]
   )
 
-  const byColumn = useMemo(() => {
-    const map = new Map<WorkColumn, WorkItem[]>()
-    for (const column of WORK_COLUMN_ORDER) {
-      map.set(column, [])
-    }
-    for (const item of items) {
-      map.get(item.column)?.push(item)
-    }
-    return map
-  }, [items])
+  const byColumn = useMemo(() => groupByColumn(items), [items])
 
   // DAG edges only exist among tasks/dispatches (terminals/agents have none).
-  const edgeSummary = useMemo(() => {
-    const edges: string[] = []
-    for (const item of items) {
-      const task = item.task
-      if (!task) {
-        continue
-      }
-      for (const dep of task.deps) {
-        edges.push(`${dep} → ${task.id}`)
-      }
-      if (task.parentId) {
-        edges.push(`${task.parentId} ⤳ ${task.id}`)
-      }
-    }
-    return edges
-  }, [items])
+  const edgeSummary = useMemo(() => summarizeEdges(items), [items])
 
   // Honest combined freshness: the Board reads three feeds, two of which poll, so
   // it is never "live" — surface the oldest update + the slowest poll cadence.
   const states = [tasksState, agentsState, terminalsState]
-  const updatedAts = states.map((s) => s.updatedAt).filter((n): n is number => n !== null)
-  const updatedAt = updatedAts.length > 0 ? Math.min(...updatedAts) : null
-  const pollIntervalMs =
-    Math.max(tasksState.pollIntervalMs ?? 0, terminalsState.pollIntervalMs ?? 0) || undefined
+  const { updatedAt, pollIntervalMs } = combineFreshness(states)
 
-  const content: ContentState = !states.some((s) => s.hasLoaded || s.value !== null)
-    ? 'loading'
-    : states.every((s) => s.error && !s.value)
-      ? 'error'
-      : items.length === 0
-        ? 'empty'
-        : 'content'
-  const errorMessage = states.find((s) => s.error)?.error?.message ?? 'Could not load the board.'
+  const content: ContentState = deriveBoardContentState(states, items.length)
+  const errorMessage = firstErrorMessage(states, 'Could not load the board.')
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
