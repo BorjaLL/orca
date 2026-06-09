@@ -189,6 +189,26 @@ export type TerminalHandle = {
   agentEligible?: boolean
 }
 
+/**
+ * Provider-agnostic review state for a branch (R3 — PRD FR28). Shapes the
+ * review surface without a GitHub-only assumption (NFR9). Populating this needs
+ * a BACKEND ADDITION for the portal: the runtime's hostedReview surface is
+ * Electron-IPC only today, not on the WebRuntimeClient RPC the portal speaks, so
+ * a remote review-status read does not exist yet. The capability logic that
+ * shapes the UI is already pure + tested in surfaces/review-model.ts.
+ */
+export type ReviewStatus = {
+  /** 'github' | 'gitlab' | other; drives label (PR vs MR) + capabilities. */
+  provider: string
+  branch: string
+  /** Review number when one exists (PR/MR number); null when none yet. */
+  number: number | null
+  /** Hosted state when known, e.g. 'open' | 'merged' | 'closed' | 'draft'. */
+  state?: string
+  url?: string
+  title?: string
+}
+
 export type TaskFilter = {
   status?: TaskStatus
   runId?: string

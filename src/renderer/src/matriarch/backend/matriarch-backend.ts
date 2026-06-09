@@ -4,6 +4,7 @@ import type {
   Gate,
   InboxFilter,
   Message,
+  ReviewStatus,
   Task,
   TaskDetail,
   TaskFilter,
@@ -106,4 +107,13 @@ export type MatriarchBackend = {
   sendMessage?(to: string, body: string, opts?: unknown): Promise<void>
   runCoordinator?(spec: string, opts?: unknown): Promise<string>
   stopCoordinator?(): Promise<void>
+
+  // ── review & ship (R3 — declared, needs a backend addition) ──────────
+  // Why optional + unimplemented by the Orca adapter today: the runtime's
+  // hostedReview surface is Electron-IPC only, not on the WebRuntimeClient RPC
+  // the portal speaks. A remote review-status read is a scoped BACKEND ADDITION
+  // (PRD risk R2). The provider-agnostic capability logic that shapes the UI is
+  // already pure + tested (surfaces/review-model.ts), so wiring is low-risk once
+  // the RPC lands. Capability presence is gated on this method existing (NFR9).
+  reviewStatus?(branch: string): Promise<ReviewStatus>
 }

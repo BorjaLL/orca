@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { ArrowRight, Flame, Inbox as InboxIcon } from 'lucide-react'
+import { ArrowRight, Download, Flame, Inbox as InboxIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { ConnectionState, Message, MessageType } from '../backend'
@@ -9,6 +10,7 @@ import { useLiveFeed, resolveContentState } from '../state/use-live-feed'
 import { FreshnessIndicator } from '../components/freshness-indicator'
 import { EmptyState, ErrorState, Skeleton } from '../components/data-states'
 import { collectRecipients, countByType as countMessagesByType, orderInbox } from './inbox-model'
+import { auditFilename, toCsv } from './audit-export'
 
 const TYPE_VARIANT: Record<MessageType, 'outline' | 'secondary' | 'destructive' | 'attention'> = {
   status: 'outline',
@@ -71,6 +73,13 @@ export function InboxView({
 
   const content = resolveContentState(state, (v) => v.length === 0)
 
+  // Guardrails R4 (FR32): export the immutable audit trail. The export reflects
+  // the current filter (what the operator is looking at) and serializes via the
+  // pure, tested audit-export model — no backend addition needed.
+  const exportAudit = (): void => {
+    downloadText(toCsv(shown), auditFilename('csv', Date.now()), 'text/csv')
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex flex-wrap items-center gap-2.5 border-b border-border px-4 py-3">
@@ -79,6 +88,16 @@ export function InboxView({
           Audit trail · {messages.length} messages
         </span>
         <div className="flex-1" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5"
+          onClick={exportAudit}
+          disabled={shown.length === 0}
+        >
+          <Download className="size-3.5" aria-hidden />
+          Export
+        </Button>
         <FreshnessIndicator
           connectionState={connectionState}
           isLive={state.isLive}
@@ -222,4 +241,19 @@ function FilterRow({
       {count !== undefined && <span className="ml-auto text-[11px]">{count}</span>}
     </button>
   )
+}
+
+/** Trigger a client-side file download of `text`. Browser-only side effect (no
+ *  backend, no data egress — NFR14); the serialized content comes from the pure,
+ *  tested audit-export model. */
+function downloadText(text: string, filename: string, mimeType: string): void {
+  const blob = new Blob([text], { type: `${mimeType};charset=utf-8` })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
 }
