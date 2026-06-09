@@ -119,4 +119,38 @@ describe('MockMatriarchBackend', () => {
       forCoord!.every((m) => m.toHandle === 'term_coord' || m.fromHandle === 'term_coord')
     ).toBe(true)
   })
+
+  it('exposes the R2 interact methods (resolveGate + sendMessage)', () => {
+    backend = new MockMatriarchBackend({ now: () => 1_700_000_000_000 })
+    expect(typeof backend.resolveGate).toBe('function')
+    expect(typeof backend.sendMessage).toBe('function')
+  })
+
+  it('resolveGate flips the gate to resolved and re-emits the gates feed', async () => {
+    backend = new MockMatriarchBackend({ now: () => 1_700_000_000_000 })
+    const resolved = await backend.resolveGate('gate_01', 'Use Zustand')
+    expect(resolved.status).toBe('resolved')
+    expect(resolved.resolution).toBe('Use Zustand')
+    expect(resolved.resolvedAt).toBe(new Date(1_700_000_000_000).toISOString())
+    // The live gates feed reflects the change (so the rail/Sheet update).
+    const gates = firstValue(backend.gates())
+    expect(gates!.find((g) => g.id === 'gate_01')?.status).toBe('resolved')
+  })
+
+  it('resolveGate rejects an unknown gate id', async () => {
+    backend = new MockMatriarchBackend({ now: () => 1_700_000_000_000 })
+    await expect(backend.resolveGate('nope', 'x')).rejects.toThrow(/not found/i)
+  })
+
+  it('sendMessage appends to the inbox audit trail', async () => {
+    backend = new MockMatriarchBackend({ now: () => 1_700_000_000_000 })
+    const before = firstValue(backend.inbox())!.length
+    await backend.sendMessage('term_w', 'pick up task_or15', { type: 'handoff', priority: 'high' })
+    const after = firstValue(backend.inbox())!
+    expect(after.length).toBe(before + 1)
+    const sent = after.at(-1)!
+    expect(sent.toHandle).toBe('term_w')
+    expect(sent.type).toBe('handoff')
+    expect(sent.body).toBe('pick up task_or15')
+  })
 })

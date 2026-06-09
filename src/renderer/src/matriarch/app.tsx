@@ -121,6 +121,23 @@ function PortalSurfaces({
     })
   }
 
+  // Why: answering a decision gate is the portal's R2 control-surface write
+  // (FR25/Story 6.1) over the existing orchestration.gateResolve RPC. Capability-
+  // gated on the adapter exposing it, so a read-only backend hides the affordance
+  // (NFR10). The toast.promise makes it an explicit, visible action.
+  const canResolveGate = Boolean(backend.resolveGate)
+  const resolveGate = (gateId: string, resolution: string): void => {
+    const sent = backend.resolveGate?.(gateId, resolution)
+    if (!sent) {
+      return
+    }
+    toast.promise(sent, {
+      loading: 'Answering the gate…',
+      success: (gate) => `Gate answered: ${gate.resolution ?? resolution}`,
+      error: (err) => (err instanceof Error ? err.message : 'Could not answer the gate.')
+    })
+  }
+
   // A rail click always opens detail: task-backed items jump to the task; an
   // escalation/handle-only item opens the full-body attention view, so it never
   // no-ops when the source agent has decayed out of the live feed.
@@ -169,6 +186,8 @@ function PortalSurfaces({
         canOpenInOrca={canOpenInOrca}
         onHandToCoordinator={handToCoordinator}
         canHandToCoordinator={canHandToCoordinator}
+        onResolveGate={resolveGate}
+        canResolveGate={canResolveGate}
       />
     </>
   )

@@ -19,15 +19,21 @@ import {
 } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
-import type { AgentSnapshot, Task, TaskDetail, TerminalSummary } from '../backend'
+import type { AgentSnapshot, Gate, Task, TaskDetail, TerminalSummary } from '../backend'
 import type { AttentionItem } from '../state/needs-attention'
 import { useBackend } from '../state/backend-context'
 import { AGENT_STATE_CONFIG, TASK_STATUS_CONFIG } from '../components/status-vocabulary'
 import { StatePill } from '../components/state-pill'
 import { CoordinatorSummary } from '../components/coordinator-summary'
 import { formatAgo, useNow } from '../state/use-now'
+import {
+  buildGateResolution,
+  canResolveGate as canResolveGateModel,
+  gateStatusLabel
+} from './gate-model'
 
 /** Discriminated selection driving the right-edge detail Sheet. */
 export type DetailSelection =
@@ -45,7 +51,9 @@ export function DetailSheet({
   onOpenInOrca,
   canOpenInOrca,
   onHandToCoordinator,
-  canHandToCoordinator
+  canHandToCoordinator,
+  onResolveGate,
+  canResolveGate
 }: {
   selection: DetailSelection
   onClose: () => void
@@ -55,6 +63,8 @@ export function DetailSheet({
   canOpenInOrca: boolean
   onHandToCoordinator: (task: Task) => void
   canHandToCoordinator: boolean
+  onResolveGate: (gateId: string, resolution: string) => void
+  canResolveGate: boolean
 }): React.JSX.Element {
   return (
     <Sheet open={selection !== null} onOpenChange={(open) => !open && onClose()}>
@@ -70,6 +80,8 @@ export function DetailSheet({
             canOpenInOrca={canOpenInOrca}
             onHandToCoordinator={onHandToCoordinator}
             canHandToCoordinator={canHandToCoordinator}
+            onResolveGate={onResolveGate}
+            canResolveGate={canResolveGate}
             onClose={onClose}
           />
         )}
@@ -147,6 +159,8 @@ function TaskDetailBody({
   canOpenInOrca,
   onHandToCoordinator,
   canHandToCoordinator,
+  onResolveGate,
+  canResolveGate,
   onClose
 }: {
   taskId: string
@@ -154,6 +168,8 @@ function TaskDetailBody({
   canOpenInOrca: boolean
   onHandToCoordinator: (task: Task) => void
   canHandToCoordinator: boolean
+  onResolveGate: (gateId: string, resolution: string) => void
+  canResolveGate: boolean
   onClose: () => void
 }): React.JSX.Element {
   const { backend } = useBackend()
@@ -286,29 +302,11 @@ function TaskDetailBody({
           </section>
 
           {detail.gate && (
-            <section className="flex flex-col gap-2">
-              <SectionLabel>Related gate</SectionLabel>
-              <div className="flex flex-col gap-2.5 rounded-lg border border-attention/40 bg-attention/[0.08] p-3">
-                <div className="flex items-center gap-1.5 text-[13px] font-semibold">
-                  <Hourglass className="size-3.5 text-attention" aria-hidden />
-                  {detail.gate.question}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  {detail.gate.options.map((option) => (
-                    <div
-                      key={option}
-                      className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs"
-                    >
-                      {option}
-                    </div>
-                  ))}
-                </div>
-                <span className="text-[11px] text-muted-foreground">
-                  {detail.gate.toHandle ? `Waiting on ${detail.gate.toHandle} · ` : ''}read-only in
-                  v1
-                </span>
-              </div>
-            </section>
+            <GateSection
+              gate={detail.gate}
+              canResolveGate={canResolveGate}
+              onResolveGate={onResolveGate}
+            />
           )}
 
           {detail.relatedMessages.length > 0 && (
@@ -329,6 +327,102 @@ function TaskDetailBody({
         </div>
       </ScrollArea>
     </>
+  )
+}
+
+/**
+ * The related-gate block. When the gate is pending AND the backend exposes
+ * resolveGate (capability-gated, NFR10), it renders an answer affordance: each
+ * offered option is a one-click answer, plus a free-text fallback. Otherwise it
+ * shows the gate read-only (the v1 monitor posture). Validation runs through the
+ * pure gate-model so an un-offered option / empty text never reaches the backend.
+ */
+function GateSection({
+  gate,
+  canResolveGate,
+  onResolveGate
+}: {
+  gate: Gate
+  canResolveGate: boolean
+  onResolveGate: (gateId: string, resolution: string) => void
+}): React.JSX.Element {
+  const [text, setText] = useState('')
+  const interactive = canResolveGate && canResolveGateModel(gate)
+
+  const answerOption = (option: string): void => {
+    const built = buildGateResolution(gate, { mode: 'option', option })
+    if (built.ok) {
+      onResolveGate(gate.id, built.resolution)
+    }
+  }
+  const answerText = (): void => {
+    const built = buildGateResolution(gate, { mode: 'text', text })
+    if (built.ok) {
+      onResolveGate(gate.id, built.resolution)
+      setText('')
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-2">
+      <SectionLabel>Related gate</SectionLabel>
+      <div className="flex flex-col gap-2.5 rounded-lg border border-attention/40 bg-attention/[0.08] p-3">
+        <div className="flex items-center gap-1.5 text-[13px] font-semibold">
+          <Hourglass className="size-3.5 text-attention" aria-hidden />
+          {gate.question}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          {gate.options.map((option) =>
+            interactive ? (
+              <Button
+                key={option}
+                variant="outline"
+                size="sm"
+                className="justify-start text-xs"
+                onClick={() => answerOption(option)}
+              >
+                {option}
+              </Button>
+            ) : (
+              <div
+                key={option}
+                className={cn(
+                  'rounded-md border border-border bg-background px-2.5 py-1.5 text-xs',
+                  gate.resolution === option && 'border-attention/60 font-semibold'
+                )}
+              >
+                {option}
+                {gate.resolution === option ? ' · chosen' : ''}
+              </div>
+            )
+          )}
+        </div>
+
+        {interactive && (
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => event.key === 'Enter' && answerText()}
+              placeholder="Or type an answer…"
+              className="h-8 text-xs"
+            />
+            <Button size="sm" disabled={text.trim().length === 0} onClick={answerText}>
+              Answer
+            </Button>
+          </div>
+        )}
+
+        <span className="text-[11px] text-muted-foreground">
+          {gate.toHandle ? `Waiting on ${gate.toHandle} · ` : ''}
+          {interactive
+            ? gateStatusLabel(gate)
+            : !canResolveGate
+              ? 'read-only'
+              : gateStatusLabel(gate)}
+        </span>
+      </div>
+    </section>
   )
 }
 

@@ -22,7 +22,12 @@ import {
   mapMessage,
   mapTask
 } from './orca-mappers'
-import type { OrcaGateListResult, OrcaInboxResult, OrcaTaskListResult } from './orca-wire-types'
+import type {
+  OrcaGateListResult,
+  OrcaGateRow,
+  OrcaInboxResult,
+  OrcaTaskListResult
+} from './orca-wire-types'
 
 const DEFAULT_POLL_MS = 3000
 const CONNECTION_PROBE_MS = 4000
@@ -193,6 +198,39 @@ export class OrcaMatriarchBackend implements MatriarchBackend {
 
   coordinator(): LiveFeed<CoordinatorState> {
     return asLiveFeed(this.coordinatorSource)
+  }
+
+  // ── interact (R2) ────────────────────────────────────────────────────
+  // Why: answering a decision gate is the highest-value, lowest-risk write the
+  // existing runtime already supports (orchestration.gateResolve — no backend
+  // change). The portal validates the resolution before this call (gate-model)
+  // and confirms it as an explicit user action (NFR10). On success we kick the
+  // gates poll so the rail/Sheet reflect the resolved row without waiting a tick.
+  async resolveGate(id: string, resolution: string): Promise<Gate> {
+    const result = await this.call<{ gate: OrcaGateRow }>('orchestration.gateResolve', {
+      id,
+      resolution
+    })
+    this.gatesPoller.refresh()
+    return mapGate(result.gate)
+  }
+
+  // Why: send a message / nudge to a handle (PRD FR26) over the same
+  // orchestration.send the coordinator handoff already uses. Refreshes the inbox
+  // so the sent message appears in the audit trail.
+  async sendMessage(
+    to: string,
+    body: string,
+    opts?: { subject?: string; type?: string; priority?: string }
+  ): Promise<void> {
+    await this.call('orchestration.send', {
+      to,
+      subject: opts?.subject ?? 'Message from the portal',
+      body,
+      type: opts?.type ?? 'status',
+      priority: opts?.priority ?? 'normal'
+    })
+    this.inboxPoller.refresh()
   }
 
   private beginConnectionTracking(): void {

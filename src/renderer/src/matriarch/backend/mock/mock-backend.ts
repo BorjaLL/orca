@@ -5,6 +5,8 @@ import type {
   Gate,
   InboxFilter,
   Message,
+  MessagePriority,
+  MessageType,
   Task,
   TaskDetail,
   TaskFilter,
@@ -163,6 +165,53 @@ export class MockMatriarchBackend implements MatriarchBackend {
 
   // No live coordinator behind the mock — handing off is a no-op here.
   async handToCoordinator(): Promise<void> {}
+
+  // ── interact (R2) ────────────────────────────────────────────────────
+  // Why: the mock backs the design-data dev surface AND the interaction tests.
+  // Applying the resolution locally lets a dev see the gate flip to resolved and
+  // leave the Needs-attention rail, mirroring the real adapter's reconcile.
+  async resolveGate(id: string, resolution: string): Promise<Gate> {
+    await this.delay()
+    const current = this.gatesSource.latest?.value ?? []
+    const gate = current.find((g) => g.id === id)
+    if (!gate) {
+      throw new Error(`Gate not found: ${id}`)
+    }
+    const resolved: Gate = {
+      ...gate,
+      status: 'resolved',
+      resolution,
+      resolvedAt: new Date(this.now()).toISOString()
+    }
+    this.gatesSource.emit(
+      current.map((g) => (g.id === id ? resolved : g)),
+      this.now()
+    )
+    return resolved
+  }
+
+  // Why: append the sent message to the audit trail so the dev surface shows the
+  // round-trip (FR26). No real delivery behind the mock.
+  async sendMessage(
+    to: string,
+    body: string,
+    opts?: { subject?: string; type?: MessageType; priority?: MessagePriority }
+  ): Promise<void> {
+    await this.delay()
+    const current = this.inboxSource.latest?.value ?? []
+    const message: Message = {
+      id: `mock-msg-${current.length + 1}`,
+      fromHandle: 'portal',
+      toHandle: to,
+      type: opts?.type ?? 'status',
+      priority: opts?.priority ?? 'normal',
+      body,
+      subject: opts?.subject,
+      sequence: current.length + 1,
+      createdAt: new Date(this.now()).toISOString()
+    }
+    this.inboxSource.emit([...current, message], this.now())
+  }
 
   private setConnectionState(state: ConnectionState): void {
     this.connectionState = state
