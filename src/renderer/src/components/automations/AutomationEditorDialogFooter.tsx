@@ -60,6 +60,11 @@ export function AutomationEditorDialogFooter({
   onOpenChange,
   onSave
 }: AutomationEditorDialogFooterProps): React.JSX.Element {
+  // Why: render the picker as a custom profile only while that profile still
+  // exists; a deleted profile falls back to the built-in baseAgent in `agentId`.
+  const selectedAgentProfile = draft.customAgentId
+    ? ((settings?.customAgents ?? []).find((p) => p.id === draft.customAgentId) ?? null)
+    : null
   return (
     <div className="border-t border-border/50 px-5 py-4">
       <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
@@ -209,11 +214,25 @@ export function AutomationEditorDialogFooter({
             >
               <AgentCombobox
                 agents={visibleAgents}
-                value={{ kind: 'builtin', agent: draft.agentId }}
+                customAgents={settings?.customAgents ?? []}
+                value={
+                  selectedAgentProfile
+                    ? { kind: 'custom', profile: selectedAgentProfile }
+                    : { kind: 'builtin', agent: draft.agentId }
+                }
                 onValueChange={(selection) => {
-                  const agentId = selection.kind === 'builtin' ? selection.agent : null
-                  if (agentId) {
-                    onDraftChange((current) => ({ ...current, agentId }))
+                  if (selection.kind === 'custom') {
+                    onDraftChange((current) => ({
+                      ...current,
+                      agentId: selection.profile.baseAgent,
+                      customAgentId: selection.profile.id
+                    }))
+                  } else if (selection.kind === 'builtin') {
+                    onDraftChange((current) => ({
+                      ...current,
+                      agentId: selection.agent,
+                      customAgentId: null
+                    }))
                   }
                 }}
                 defaultAgent={settings?.defaultTuiAgent ?? null}

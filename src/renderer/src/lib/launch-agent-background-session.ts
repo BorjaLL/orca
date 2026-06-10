@@ -5,7 +5,7 @@ import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { track, tuiAgentToAgentKind } from '@/lib/telemetry'
 import { pasteDraftWhenAgentReady } from '@/lib/agent-paste-draft'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
-import type { TuiAgent } from '../../../shared/types'
+import type { CustomAgentProfile, TuiAgent } from '../../../shared/types'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import {
@@ -28,6 +28,9 @@ import { translate } from '@/i18n/i18n'
 
 export type LaunchAgentBackgroundSessionArgs = {
   agent: TuiAgent
+  /** When set, the run launches with the profile's command + env prefix; the
+   *  base `agent` still drives prompt-injection mode and telemetry. */
+  customProfile?: CustomAgentProfile | null
   worktreeId: string
   prompt?: string
   launchSource?: LaunchSource
@@ -46,7 +49,17 @@ export type LaunchAgentBackgroundSessionResult = {
 export async function launchAgentBackgroundSession(
   args: LaunchAgentBackgroundSessionArgs
 ): Promise<LaunchAgentBackgroundSessionResult | null> {
-  const { agent, worktreeId, prompt, launchSource, title, onData, onExit, onAgentStatus } = args
+  const {
+    agent,
+    customProfile,
+    worktreeId,
+    prompt,
+    launchSource,
+    title,
+    onData,
+    onExit,
+    onAgentStatus
+  } = args
   const store = useAppStore.getState()
   const worktree = store.allWorktrees().find((entry) => entry.id === worktreeId)
   const repo = worktree ? store.repos.find((entry) => entry.id === worktree.repoId) : null
@@ -77,7 +90,8 @@ export async function launchAgentBackgroundSession(
       prompt: '',
       cmdOverrides,
       platform: CLIENT_PLATFORM,
-      allowEmptyPromptLaunch: true
+      allowEmptyPromptLaunch: true,
+      customProfile
     })
     pasteDraftAfterLaunch = trimmedPrompt
   } else {
@@ -86,7 +100,8 @@ export async function launchAgentBackgroundSession(
       prompt: hasPrompt ? trimmedPrompt : '',
       cmdOverrides,
       platform: CLIENT_PLATFORM,
-      allowEmptyPromptLaunch: !hasPrompt
+      allowEmptyPromptLaunch: !hasPrompt,
+      customProfile
     })
   }
   if (!startupPlan) {
@@ -257,7 +272,12 @@ export async function launchAgentBackgroundSession(
       agent,
       submit: true,
       onTimeout: () => {
-        toast.message(translate("auto.lib.launch.agent.background.session.4ca0651d56", "Your automation prompt wasn't sent — open the workspace and paste it."))
+        toast.message(
+          translate(
+            'auto.lib.launch.agent.background.session.4ca0651d56',
+            "Your automation prompt wasn't sent — open the workspace and paste it."
+          )
+        )
         track('agent_error', {
           error_class: 'paste_readiness_timeout',
           agent_kind: tuiAgentToAgentKind(agent)

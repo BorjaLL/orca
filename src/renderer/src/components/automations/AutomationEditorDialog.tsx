@@ -28,6 +28,9 @@ export type AutomationDraft = {
   name: string
   prompt: string
   agentId: TuiAgent
+  /** Set when the chosen agent is a custom profile; `agentId` holds its
+   *  baseAgent. Null/undefined means a plain built-in agent. */
+  customAgentId?: string | null
   projectId: string
   workspaceMode: AutomationWorkspaceMode
   workspaceId: string

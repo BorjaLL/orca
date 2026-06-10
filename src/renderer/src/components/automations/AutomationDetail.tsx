@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
 import type { Automation, AutomationRun } from '../../../../shared/automations-types'
+import type { CustomAgentProfile } from '../../../../shared/types'
 import { formatAutomationSchedule } from '../../../../shared/automation-schedules'
 import { formatAutomationPrecheckTimeout } from '../../../../shared/automation-precheck'
 import { formatAutomationDateTimeWithRelative } from './automation-page-parts'
@@ -18,6 +19,7 @@ import { translate } from '@/i18n/i18n'
 type AutomationDetailProps = {
   automation: Automation | null
   runs: AutomationRun[]
+  customAgents: CustomAgentProfile[]
   projectName: string
   workspaceName: string
   projectDefaultBaseRef: string | null
@@ -83,6 +85,7 @@ function ToolbarIconButton({
 export function AutomationDetail({
   automation,
   runs,
+  customAgents,
   projectName,
   workspaceName,
   projectDefaultBaseRef,
@@ -109,8 +112,15 @@ export function AutomationDetail({
       : usageSummary.unavailableRuns > 0
         ? 'Unavailable'
         : 'No runs'
+  // Why: show the custom profile's label when set; its baseAgent lives in
+  // `agentId`, so the AgentIcon below still renders the right base CLI icon.
+  const customProfile = automation.customAgentId
+    ? (customAgents.find((p) => p.id === automation.customAgentId) ?? null)
+    : null
   const agentLabel =
-    getAgentCatalog().find((agent) => agent.id === automation.agentId)?.label ?? automation.agentId
+    customProfile?.label ??
+    getAgentCatalog().find((agent) => agent.id === automation.agentId)?.label ??
+    automation.agentId
   const runLocationLabel =
     automation.workspaceMode === 'new_per_run'
       ? (automation.baseBranch ?? projectDefaultBaseRef ?? 'Project default')

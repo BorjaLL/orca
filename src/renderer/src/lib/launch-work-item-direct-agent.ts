@@ -9,8 +9,36 @@ import type { AgentStartupPlan } from '@/lib/tui-agent-startup'
 import type { AgentStartedTelemetry } from '@/lib/worktree-activation'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection'
+import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import type { CustomAgentProfile, GlobalSettings, TuiAgent } from '../../../shared/types'
 import { translate } from '@/i18n/i18n'
+
+/** Pre-write the trust artifact that trust-gated CLIs (cursor-agent, copilot)
+ *  write after the user accepts "Do you trust this folder?", so that menu never
+ *  fires and consumes the bracketed-paste draft. Best-effort: main swallows
+ *  errors, and the IPC presence is guarded against a stale preload bundle. */
+export async function markDirectLaunchAgentTrusted(
+  agent: TuiAgent,
+  worktreePath: string,
+  connectionId?: string | null
+): Promise<void> {
+  if (!worktreePath || !window.api.agentTrust?.markTrusted) {
+    return
+  }
+  const preflight = TUI_AGENT_CONFIG[agent].preflightTrust
+  if (!preflight) {
+    return
+  }
+  try {
+    await window.api.agentTrust.markTrusted({
+      preset: preflight,
+      workspacePath: worktreePath,
+      ...(connectionId ? { connectionId } : {})
+    })
+  } catch {
+    // Best-effort: continue with launch even if the trust write throws.
+  }
+}
 
 /** Resolve which agent (and optional custom profile) a direct work-item launch
  *  should use from the saved default preference, honoring detection + disabled

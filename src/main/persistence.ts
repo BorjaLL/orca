@@ -2768,6 +2768,7 @@ export class Store {
       prompt: input.prompt,
       precheck: normalizeAutomationPrecheck(input.precheck),
       agentId: input.agentId,
+      customAgentId: input.customAgentId ?? null,
       projectId: input.projectId,
       executionTargetType,
       executionTargetId: executionTargetType === 'ssh' ? (repo?.connectionId ?? '') : 'local',

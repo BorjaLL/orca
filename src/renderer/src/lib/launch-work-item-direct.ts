@@ -5,7 +5,6 @@ import {
   buildAgentStartupPlan,
   planAgentCliArgsSuffix
 } from '@/lib/tui-agent-startup'
-import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { getWorkspaceIntentName, getWorkspaceSeedName, isGitLabIssueUrl } from '@/lib/new-workspace'
@@ -26,6 +25,7 @@ import type { LaunchSource } from '../../../shared/telemetry-events'
 import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
 import {
   buildDirectWorkItemStartupOpts,
+  markDirectLaunchAgentTrusted,
   pasteDirectWorkItemDraftWhenAgentReady,
   pickDirectLaunchAgent
 } from '@/lib/launch-work-item-direct-agent'
@@ -284,27 +284,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       })
     }
 
-    // Why: agents that gate first-launch behind a "Do you trust this folder?"
-    // menu (cursor-agent, copilot) consume the bracketed paste as menu input.
-    // Pre-write the same trust artifact those CLIs write after the user
-    // accepts so the menu never fires. Best-effort — main swallows errors,
-    // and we guard the IPC presence so a stale preload bundle (which can
-    // ship a renderer that's ahead of the loaded preload) doesn't crash the
-    // launch with "Cannot read properties of undefined".
-    if (effectiveAgent && worktreePath && window.api.agentTrust?.markTrusted) {
-      const preflight = TUI_AGENT_CONFIG[effectiveAgent].preflightTrust
-      if (preflight) {
-        try {
-          await window.api.agentTrust.markTrusted({
-            preset: preflight,
-            workspacePath: worktreePath,
-            ...(repo.connectionId ? { connectionId: repo.connectionId } : {})
-          })
-        } catch {
-          // Best-effort: continue with launch even if the trust write
-          // throws. The user can dismiss the trust menu manually.
-        }
-      }
+    if (effectiveAgent) {
+      await markDirectLaunchAgentTrusted(effectiveAgent, worktreePath, repo.connectionId)
     }
 
     // Why: draft launches prefer a native prefill flag when the CLI exposes one;

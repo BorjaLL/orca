@@ -39,6 +39,10 @@ import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import RepoBadgeLabel from '@/components/repo/RepoBadgeLabel'
 import { getAgentCatalog } from '@/lib/agent-catalog'
+import {
+  findCustomAgentProfile,
+  resolveDefaultTuiAgentPreference
+} from '@/lib/custom-agent-resolve'
 import { useRepoMap, useWorktreeMap } from '@/store/selectors'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import type {
@@ -52,7 +56,7 @@ import type {
   AutomationUpdateInput
 } from '../../../../shared/automations-types'
 import type { SshConnectionStatus } from '../../../../shared/ssh-types'
-import type { Worktree } from '../../../../shared/types'
+import type { TuiAgent, Worktree } from '../../../../shared/types'
 import { getWorktreePathBasenameFromId } from '../../../../shared/worktree-id'
 import {
   buildAutomationCronSchedule,
@@ -275,13 +279,17 @@ export default function AutomationsPage(): React.JSX.Element {
   const repoMap = useRepoMap()
   const worktreeMap = useWorktreeMap()
   const enabledAgents = filterEnabledTuiAgents(AGENTS, settings?.disabledTuiAgents)
-  const defaultAgent =
-    settings?.defaultTuiAgent &&
-    settings.defaultTuiAgent !== 'blank' &&
-    typeof settings.defaultTuiAgent !== 'object' &&
-    isTuiAgentEnabled(settings.defaultTuiAgent, settings.disabledTuiAgents)
-      ? settings.defaultTuiAgent
-      : (enabledAgents[0] ?? AGENTS[0])
+  // Why: a custom-profile default seeds both slots (baseAgent + profile id);
+  // a built-in default is honored only while enabled, else first enabled agent.
+  const defaultPref = resolveDefaultTuiAgentPreference(settings)
+  const defaultCustomAgentId = defaultPref.kind === 'custom' ? defaultPref.profile.id : null
+  const defaultAgent: TuiAgent =
+    defaultPref.kind === 'custom'
+      ? defaultPref.agent
+      : defaultPref.kind === 'builtin' &&
+          isTuiAgentEnabled(defaultPref.agent, settings?.disabledTuiAgents)
+        ? defaultPref.agent
+        : (enabledAgents[0] ?? AGENTS[0])
 
   const [automations, setAutomations] = useState<Automation[]>([])
   const [runs, setRuns] = useState<AutomationRun[]>([])
@@ -346,6 +354,7 @@ export default function AutomationsPage(): React.JSX.Element {
     name: '',
     prompt: '',
     agentId: defaultAgent,
+    customAgentId: defaultCustomAgentId,
     projectId: '',
     workspaceMode: 'existing',
     workspaceId: '',
@@ -703,6 +712,7 @@ export default function AutomationsPage(): React.JSX.Element {
       dayOfWeek: template.dayOfWeek ?? current.dayOfWeek,
       customSchedule: '',
       agentId: template.agentId ?? current.agentId,
+      customAgentId: template.agentId ? null : current.customAgentId,
       missedRunGraceMinutes: template.missedRunGraceMinutes ?? current.missedRunGraceMinutes,
       scheduleWarning: null
     }))
@@ -714,6 +724,7 @@ export default function AutomationsPage(): React.JSX.Element {
       setDraft((current) => ({
         ...current,
         agentId: 'hermes',
+        customAgentId: null,
         workspaceMode: 'existing',
         reuseSession: false
       }))
@@ -730,6 +741,7 @@ export default function AutomationsPage(): React.JSX.Element {
       name: '',
       prompt: '',
       agentId: defaultAgent,
+      customAgentId: defaultCustomAgentId,
       projectId: target.projectId,
       workspaceMode: 'existing',
       workspaceId: target.workspaceId,
@@ -754,6 +766,7 @@ export default function AutomationsPage(): React.JSX.Element {
           dayOfWeek: template.dayOfWeek ?? baseDraft.dayOfWeek,
           customSchedule: '',
           agentId: template.agentId ?? baseDraft.agentId,
+          customAgentId: template.agentId ? null : baseDraft.customAgentId,
           missedRunGraceMinutes: template.missedRunGraceMinutes ?? baseDraft.missedRunGraceMinutes
         }
       : baseDraft
@@ -784,6 +797,7 @@ export default function AutomationsPage(): React.JSX.Element {
       name: latest.name,
       prompt: latest.prompt,
       agentId: latest.agentId,
+      customAgentId: latest.customAgentId ?? null,
       projectId: latest.projectId,
       workspaceMode: latest.workspaceMode,
       workspaceId: latest.workspaceId ?? '',
@@ -925,6 +939,7 @@ export default function AutomationsPage(): React.JSX.Element {
     if (
       editingAutomationId === null &&
       !isHermesSave &&
+      !draft.customAgentId &&
       !isTuiAgentEnabled(draft.agentId, settings?.disabledTuiAgents)
     ) {
       toast.error(
@@ -1054,6 +1069,7 @@ export default function AutomationsPage(): React.JSX.Element {
         prompt: draft.prompt,
         precheck,
         agentId: draft.agentId,
+        customAgentId: draft.customAgentId ?? null,
         projectId: draft.projectId,
         workspaceMode: draft.workspaceMode,
         workspaceId: draft.workspaceId,
@@ -1077,6 +1093,7 @@ export default function AutomationsPage(): React.JSX.Element {
             prompt: draft.prompt,
             precheck,
             agentId: draft.agentId,
+            customAgentId: draft.customAgentId ?? null,
             projectId: draft.projectId,
             workspaceMode: draft.workspaceMode,
             workspaceId: draft.workspaceId,
@@ -1824,7 +1841,10 @@ export default function AutomationsPage(): React.JSX.Element {
                           <span className="shrink-0">/</span>
                           <span className="truncate">{workspaceLabel}</span>
                           <span className="shrink-0">·</span>
-                          <span className="truncate">{getAgentLabel(automation.agentId)}</span>
+                          <span className="truncate">
+                            {findCustomAgentProfile(settings, automation.customAgentId)?.label ??
+                              getAgentLabel(automation.agentId)}
+                          </span>
                         </span>
                         <span className="mt-1 block truncate text-xs text-muted-foreground">
                           {usageText}
@@ -2207,6 +2227,7 @@ export default function AutomationsPage(): React.JSX.Element {
                 <AutomationDetail
                   automation={selected}
                   runs={selectedRuns}
+                  customAgents={settings?.customAgents ?? []}
                   projectName={selectedRepo?.displayName ?? 'Unknown project'}
                   projectDefaultBaseRef={selectedRepo?.worktreeBaseRef ?? null}
                   workspaceName={

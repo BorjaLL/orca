@@ -992,6 +992,48 @@ describe('Store', () => {
     expect(persisted.automations[0].baseBranch).toBeNull()
   })
 
+  it('persists a custom-agent profile id and can clear it', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo())
+    const automation = store.createAutomation({
+      name: 'Nightly',
+      prompt: 'Run checks',
+      agentId: 'claude',
+      customAgentId: 'profile-1',
+      projectId: 'r1',
+      workspaceMode: 'new_per_run',
+      timezone: 'UTC',
+      rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0',
+      dtstart: new Date('2026-05-13T00:00:00Z').getTime()
+    })
+    expect(automation.customAgentId).toBe('profile-1')
+    store.flush()
+    const afterCreate = readDataFile() as { automations: { customAgentId: string | null }[] }
+    expect(afterCreate.automations[0].customAgentId).toBe('profile-1')
+
+    const cleared = store.updateAutomation(automation.id, { customAgentId: null })
+    expect(cleared.customAgentId).toBeNull()
+    store.flush()
+    const afterClear = readDataFile() as { automations: { customAgentId: string | null }[] }
+    expect(afterClear.automations[0].customAgentId).toBeNull()
+  })
+
+  it('defaults customAgentId to null when omitted', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo())
+    const automation = store.createAutomation({
+      name: 'Nightly',
+      prompt: 'Run checks',
+      agentId: 'claude',
+      projectId: 'r1',
+      workspaceMode: 'new_per_run',
+      timezone: 'UTC',
+      rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0',
+      dtstart: new Date('2026-05-13T00:00:00Z').getTime()
+    })
+    expect(automation.customAgentId).toBeNull()
+  })
+
   it('persists session reuse only for existing-workspace automations', async () => {
     const store = await createStore()
     store.addRepo(makeRepo())

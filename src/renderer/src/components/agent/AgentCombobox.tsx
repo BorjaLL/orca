@@ -1,19 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react'
-import { ArrowRight, Check, ChevronsUpDown, Star, Terminal, Wrench } from 'lucide-react'
+import { ArrowRight, ChevronsUpDown, Terminal, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandItem,
-  CommandList
-} from '@/components/ui/command'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger
-} from '@/components/ui/context-menu'
+import { Command, CommandEmpty, CommandInput, CommandList } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { AgentIcon, type AgentCatalogEntry } from '@/lib/agent-catalog'
 import {
@@ -29,6 +17,7 @@ import {
   resolveAgentComboboxCommandState,
   updateAgentComboboxCommandValue
 } from './agent-combobox-command-state'
+import { renderAgentComboboxItem } from './agent-combobox-item'
 import { translate } from '@/i18n/i18n'
 
 type DefaultAgentPreference = TuiAgent | 'blank' | { kind: 'custom'; id: string } | null
@@ -68,61 +57,6 @@ const BLANK_VALUE = '__none__'
 // component does not get a fresh `[]` each render (breaks memo equality).
 const EMPTY_CUSTOM_AGENTS: CustomAgentProfile[] = []
 const TRIGGER_MIN_WIDTH_CLASS = '!min-w-[260px]'
-
-type ItemRenderArgs = {
-  key: string
-  itemValue: string
-  isChecked: boolean
-  isDefault: boolean
-  onSelect: () => void
-  onSetDefault?: () => void
-  icon: React.ReactNode
-  label: string
-}
-
-function renderItem({
-  key,
-  itemValue,
-  isChecked,
-  isDefault,
-  onSelect,
-  onSetDefault,
-  icon,
-  label
-}: ItemRenderArgs): React.ReactNode {
-  const row = (
-    <CommandItem
-      key={key}
-      value={itemValue}
-      onSelect={onSelect}
-      className="items-center gap-2 px-3 py-1.5"
-    >
-      <Check className={cn('size-4 text-foreground', isChecked ? 'opacity-100' : 'opacity-0')} />
-      <span className="inline-flex min-w-0 flex-1 items-center gap-1.5">
-        {icon}
-        <span className="truncate">{label}</span>
-      </span>
-    </CommandItem>
-  )
-  if (!onSetDefault) {
-    return row
-  }
-  return (
-    // Why: z-[70] sits above PopoverContent's z-[60] so the right-click menu
-    // renders in front of the still-open combobox popover instead of behind it.
-    <ContextMenu key={key}>
-      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-      <ContextMenuContent className="z-[70]">
-        <ContextMenuItem onSelect={onSetDefault} disabled={isDefault}>
-          <Star className="size-3.5" />
-          {isDefault
-            ? translate('auto.components.agent.AgentCombobox.1b0d6965fa', 'Current default')
-            : translate('auto.components.agent.AgentCombobox.9c6b59fe58', 'Set as default')}
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
-  )
-}
 
 /** Map a tri-state selection to the cmdk command-value string key used to seed
  *  and track the highlighted row (built-in id, `custom:<id>`, or blank). */
@@ -380,7 +314,7 @@ export default function AgentCombobox({
                 )}
               </CommandEmpty>
               {blankMatchesQuery
-                ? renderItem({
+                ? renderAgentComboboxItem({
                     key: BLANK_VALUE,
                     itemValue: BLANK_VALUE,
                     isChecked: value.kind === 'blank',
@@ -395,7 +329,7 @@ export default function AgentCombobox({
                   })
                 : null}
               {filteredAgents.map((agent) =>
-                renderItem({
+                renderAgentComboboxItem({
                   key: agent.id,
                   itemValue: agent.id,
                   isChecked: value.kind === 'builtin' && value.agent === agent.id,
@@ -413,7 +347,7 @@ export default function AgentCombobox({
                   defaultAgent !== null &&
                   defaultAgent.kind === 'custom' &&
                   defaultAgent.id === profile.id
-                return renderItem({
+                return renderAgentComboboxItem({
                   key,
                   itemValue: key,
                   isChecked: value.kind === 'custom' && value.profile.id === profile.id,

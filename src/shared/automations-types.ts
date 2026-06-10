@@ -80,6 +80,11 @@ export type Automation = {
   prompt: string
   precheck: AutomationPrecheck | null
   agentId: TuiAgent
+  /** Optional custom-agent profile id. When set, the run launches with the
+   *  profile's command + env vars; `agentId` still holds its baseAgent so
+   *  usage tracking and validation keep working, and a deleted profile falls
+   *  back to the base agent. */
+  customAgentId?: string | null
   projectId: string
   executionTargetType: AutomationExecutionTargetType
   executionTargetId: string
@@ -128,6 +133,7 @@ export type AutomationCreateInput = {
   prompt: string
   precheck?: AutomationPrecheck | null
   agentId: TuiAgent
+  customAgentId?: string | null
   projectId: string
   workspaceMode: AutomationWorkspaceMode
   workspaceId?: string | null
@@ -147,6 +153,7 @@ export type AutomationUpdateInput = Partial<
     | 'prompt'
     | 'precheck'
     | 'agentId'
+    | 'customAgentId'
     | 'projectId'
     | 'workspaceMode'
     | 'workspaceId'

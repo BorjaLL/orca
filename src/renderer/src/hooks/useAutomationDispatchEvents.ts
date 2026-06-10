@@ -3,6 +3,7 @@
  * completion bookkeeping, and focus restoration. */
 import { useEffect } from 'react'
 import { launchAgentBackgroundSession } from '@/lib/launch-agent-background-session'
+import { findCustomAgentProfile } from '@/lib/custom-agent-resolve'
 import { submitPromptToAgentTab } from '@/lib/agent-paste-draft'
 import { findReusableAutomationSession } from '@/lib/automation-session-reuse'
 import { observeExistingAutomationSession } from '@/lib/automation-session-observer'
@@ -72,7 +73,10 @@ export function useAutomationDispatchEvents(): void {
           status: 'skipped_unavailable',
           workspaceId: run.workspaceId,
           workspaceDisplayName: run.workspaceDisplayName ?? null,
-          error: translate("auto.hooks.useAutomationDispatchEvents.386db94f3e", "The target project is no longer available.")
+          error: translate(
+            'auto.hooks.useAutomationDispatchEvents.386db94f3e',
+            'The target project is no longer available.'
+          )
         })
         return
       }
@@ -87,7 +91,10 @@ export function useAutomationDispatchEvents(): void {
             status: 'skipped_needs_interactive_auth',
             workspaceId: dispatchWorkspaceId,
             workspaceDisplayName: dispatchWorkspaceDisplayName,
-            error: translate("auto.hooks.useAutomationDispatchEvents.16a21d6413", "SSH reconnect requires interactive credentials.")
+            error: translate(
+              'auto.hooks.useAutomationDispatchEvents.16a21d6413',
+              'SSH reconnect requires interactive credentials.'
+            )
           })
           return
         }
@@ -117,7 +124,10 @@ export function useAutomationDispatchEvents(): void {
           status: 'skipped_unavailable',
           workspaceId: automation.workspaceId,
           workspaceDisplayName: dispatchWorkspaceDisplayName,
-          error: translate("auto.hooks.useAutomationDispatchEvents.59718b120b", "The target workspace is no longer available.")
+          error: translate(
+            'auto.hooks.useAutomationDispatchEvents.59718b120b',
+            'The target workspace is no longer available.'
+          )
         })
         return
       }
@@ -170,7 +180,10 @@ export function useAutomationDispatchEvents(): void {
             status: 'skipped_unavailable',
             workspaceId: automation.workspaceId,
             workspaceDisplayName: dispatchWorkspaceDisplayName,
-            error: translate("auto.hooks.useAutomationDispatchEvents.59718b120b", "The target workspace is no longer available.")
+            error: translate(
+              'auto.hooks.useAutomationDispatchEvents.59718b120b',
+              'The target workspace is no longer available.'
+            )
           })
           return
         }
@@ -351,6 +364,10 @@ export function useAutomationDispatchEvents(): void {
         }
         const result = await launchAgentBackgroundSession({
           agent: automation.agentId,
+          customProfile: findCustomAgentProfile(
+            useAppStore.getState().settings,
+            automation.customAgentId
+          ),
           worktreeId: worktree.id,
           prompt: automation.prompt,
           launchSource: 'unknown',
