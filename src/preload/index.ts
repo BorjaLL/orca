@@ -4099,6 +4099,9 @@ const api = {
     replyTerminalCreate: (reply: TerminalTabCreateReply): void => {
       ipcRenderer.send('terminal:tabCreateReply', reply)
     },
+    notifyTerminalStartupCommandLatched: (tabId: string): void => {
+      ipcRenderer.send('terminal:startupCommandLatched', { tabId })
+    },
     onSplitTerminal: (
       callback: (data: {
         tabId: string

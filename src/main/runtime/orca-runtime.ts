@@ -2097,6 +2097,15 @@ function createTerminalRevealWarning(handle: string, error?: unknown): string {
   ].join(' ')
 }
 
+/** The renderer never confirmed it consumed the queued startup command (TerminalPane.tsx). Names the recovery the CLI's own --recover-command already automates. */
+function createTerminalStartupCommandNotLatchedWarning(handle: string, command: string): string {
+  return [
+    `Terminal ${handle} was created, but its startup command was not confirmed to have run.`,
+    'The tab is live and idle; the command may have been dropped, not queued.',
+    `Recover with: orca terminal send --terminal ${handle} --enter --text ${JSON.stringify(command)}`
+  ].join(' ')
+}
+
 // Why: an absent `surfaceOwner` means "default", so surfacing callers must omit
 // the key rather than send `true`.
 function ownerSurfacing(shouldSurface: boolean): { surfaceOwner?: false } {
@@ -27982,17 +27991,29 @@ export class OrcaRuntimeService {
       })
     })
 
+    // Why: register the ack listener before waiting for the handle so an ack
+    // that lands during that wait (the common case) isn't missed.
+    const startupCommandLatchWait = launchOpts.command
+      ? this.waitForStartupCommandLatch(reply.tabId, win)
+      : null
+
     // Why: the renderer created the tab immediately, but the graph sync that
     // populates this.leaves may not have arrived yet. Wait for the leaf to
     // appear so we can return a valid handle the caller can use right away.
     const handle = await this.waitForTerminalHandle(reply.tabId)
+    const startupCommandLatched = startupCommandLatchWait ? await startupCommandLatchWait : true
     return {
       handle,
       tabId: reply.tabId,
       worktreeId: worktreeId ?? '',
       title: reply.title,
       ...this.getPtyExecutionHostMetadata(this.handles.get(handle)?.ptyId ?? null),
-      surface: 'visible'
+      surface: 'visible',
+      ...(startupCommandLatched
+        ? {}
+        : {
+            warning: createTerminalStartupCommandNotLatchedWarning(handle, launchOpts.command!)
+          })
     }
   }
 
@@ -28964,6 +28985,30 @@ export class OrcaRuntimeService {
       this.graphSyncCallbacks.push(check)
       // Why: graph sync may have fired between the initial check and registration; re-check to avoid a missed wake-up.
       check()
+    })
+  }
+
+  /** Never rejects: a missed ack is a warning on the returned handle (orca-tracker-ycb), not a failed create. */
+  private waitForStartupCommandLatch(
+    tabId: string,
+    win: BrowserWindow,
+    timeoutMs = 5_000
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => {
+        ipcMain.removeListener('terminal:startupCommandLatched', handler)
+        resolve(false)
+      }, timeoutMs)
+
+      const handler = (event: Electron.IpcMainEvent, payload: { tabId?: string }): void => {
+        if (event.sender !== win.webContents || payload.tabId !== tabId) {
+          return
+        }
+        clearTimeout(timer)
+        ipcMain.removeListener('terminal:startupCommandLatched', handler)
+        resolve(true)
+      }
+      ipcMain.on('terminal:startupCommandLatched', handler)
     })
   }
 

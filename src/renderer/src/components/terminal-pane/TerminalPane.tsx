@@ -741,6 +741,9 @@ function TerminalPane(
   useEffect(() => {
     if (startup) {
       consumeTabStartupCommand(tabId)
+      // Why: lets a caller waiting on createTerminal's handle (orca-tracker-ycb)
+      // tell "the queued command latched" from "it was silently dropped".
+      window.api.ui.notifyTerminalStartupCommandLatched(tabId)
     }
   }, [startup, tabId, consumeTabStartupCommand])
 

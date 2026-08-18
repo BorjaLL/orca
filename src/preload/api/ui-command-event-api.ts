@@ -156,6 +156,10 @@ export type UiCommandEventApi = {
     callback: (data: { worktreeId: string; tabId?: string; ptyId?: string }) => void
   ) => () => void
   replyTerminalCreate: (reply: TerminalTabCreateReply) => void
+  /** TerminalPane consumed a queued startup command at mount (or delivered it
+   *  live into an already-mounted pane); lets the main-process caller of
+   *  createTerminal distinguish "latched" from "silently dropped". */
+  notifyTerminalStartupCommandLatched: (tabId: string) => void
   onSplitTerminal: (
     callback: (data: {
       tabId: string

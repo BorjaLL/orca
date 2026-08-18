@@ -14390,6 +14390,107 @@ describe('OrcaRuntimeService', () => {
     )
   })
 
+  // orca-tracker-ycb: a renderer-backed create's tabCreateReply only proves the
+  // tab exists, not that TerminalPane consumed the queued startup command
+  // (it reads that queue once at mount -- orca-tracker-qwb). This asserts the
+  // second, later ack the fix adds: no ack within the bounded wait means the
+  // returned handle carries a warning instead of looking clean.
+  it('warns when the renderer never confirms the startup command latched', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const webContents = { send: vi.fn() }
+      webContents.send.mockImplementation((_channel: string, payload: { requestId: string }) => {
+        runtime.syncWindowGraph(1, {
+          tabs: [],
+          leaves: [
+            {
+              tabId: 'tab-no-ack',
+              worktreeId: TEST_WORKTREE_ID,
+              leafId: 'pane:1',
+              paneRuntimeId: 1,
+              ptyId: 'pty-no-ack',
+              paneTitle: null
+            }
+          ]
+        })
+        ipcMain.emit(
+          'terminal:tabCreateReply',
+          { sender: webContents },
+          { requestId: payload.requestId, tabId: 'tab-no-ack', title: 'Shell' }
+        )
+        // Why: no terminal:startupCommandLatched ack -- simulates the
+        // renderer dropping the queued command instead of running it.
+      })
+      runtime.attachWindow(1)
+      runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+      electronMocks.BrowserWindow.fromId.mockReturnValue({
+        isDestroyed: () => false,
+        webContents
+      })
+
+      const resultPromise = runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        command: 'echo hi',
+        rendererBacked: true
+      })
+      await vi.advanceTimersByTimeAsync(5_000)
+      const result = await resultPromise
+
+      expect(result.warning).toContain('startup command was not confirmed')
+      expect(result.warning).toContain('orca terminal send --terminal')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not warn once the renderer confirms the startup command latched', async () => {
+    const runtime = new OrcaRuntimeService(store)
+    const webContents = { send: vi.fn() }
+    webContents.send.mockImplementation((_channel: string, payload: { requestId: string }) => {
+      runtime.syncWindowGraph(1, {
+        tabs: [],
+        leaves: [
+          {
+            tabId: 'tab-acked',
+            worktreeId: TEST_WORKTREE_ID,
+            leafId: 'pane:1',
+            paneRuntimeId: 1,
+            ptyId: 'pty-acked',
+            paneTitle: null
+          }
+        ]
+      })
+      ipcMain.emit(
+        'terminal:tabCreateReply',
+        { sender: webContents },
+        { requestId: payload.requestId, tabId: 'tab-acked', title: 'Shell' }
+      )
+      // Why: deferred to a macrotask so it lands after createTerminal
+      // registers its ack listener (post-reply), matching how TerminalPane's
+      // mount effect fires well after this synchronous IPC round trip.
+      setTimeout(() => {
+        ipcMain.emit(
+          'terminal:startupCommandLatched',
+          { sender: webContents },
+          { tabId: 'tab-acked' }
+        )
+      }, 0)
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+    electronMocks.BrowserWindow.fromId.mockReturnValue({
+      isDestroyed: () => false,
+      webContents
+    })
+
+    const result = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+      command: 'echo hi',
+      rendererBacked: true
+    })
+
+    expect(result.warning).toBeUndefined()
+  })
+
   it('injects runtime hook receiver env into terminal sessions', async () => {
     const spawn = vi.fn().mockResolvedValue({ id: 'pty-hooked' })
     const runtime = new OrcaRuntimeService(store, undefined, {

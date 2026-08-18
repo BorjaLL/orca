@@ -2877,6 +2877,7 @@ function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
     onRequestTerminalCreate: () => noopUnsubscribe,
     onRequestTerminalTabMount: () => noopUnsubscribe,
     replyTerminalCreate: () => {},
+    notifyTerminalStartupCommandLatched: () => {},
     onSplitTerminal: () => noopUnsubscribe,
     onRenameTerminal: () => noopUnsubscribe,
     onFocusTerminal: () => noopUnsubscribe,
