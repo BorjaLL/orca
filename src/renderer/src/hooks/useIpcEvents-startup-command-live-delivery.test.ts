@@ -47,7 +47,8 @@ describe('useIpcEvents startup command delivery for a reused/already-mounted tab
       leafId: 'leaf-existing',
       text: 'echo hi',
       runAfterPaste: true,
-      expectedPtyId: 'pty-existing'
+      expectedPtyId: 'pty-existing',
+      onUndeliverable: expect.any(Function)
     })
   })
 
@@ -85,5 +86,40 @@ describe('useIpcEvents startup command delivery for a reused/already-mounted tab
 
     expect(storeState.queueTabStartupCommand).not.toHaveBeenCalled()
     expect(pasteEventDetails()).toHaveLength(0)
+  })
+
+  // Regression for orca-tracker-qw0: qwb's expectedPtyId guard makes the
+  // reused-leaf-reconnected-to-a-different-pty case fail safe (it skips the
+  // paste instead of typing into the wrong shell), but the skip itself was
+  // silent -- nothing told a caller waiting on the handle that the command
+  // never ran. This asserts the dispatched detail carries a callback that
+  // reports the drop, and that invoking it (as the live pane's paste handler
+  // does synchronously, before useIpcEvents.ts's own code ever returns from
+  // dispatchEvent) reaches the new ack, not a black hole.
+  it('wires onUndeliverable so a ptyId-mismatch skip is reported instead of silently dropped', async () => {
+    const storeState = createHarnessStoreState({
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-existing', ptyId: 'pty-existing' }] },
+      ptyIdsByTabId: { 'tab-existing': ['pty-existing'] }
+    })
+    const harness = await loadIpcEventsHarness(storeState)
+    harness.useIpcEvents()
+
+    harness.createTerminal({
+      worktreeId: 'wt-1',
+      ptyId: 'pty-existing',
+      leafId: 'leaf-existing',
+      command: 'echo hi',
+      tabId: 'tab-existing'
+    })
+
+    const [detail] = pasteEventDetails()
+    expect(typeof detail?.onUndeliverable).toBe('function')
+
+    expect(harness.notifyTerminalStartupCommandUndeliverable).not.toHaveBeenCalled()
+    detail?.onUndeliverable?.()
+    expect(harness.notifyTerminalStartupCommandUndeliverable).toHaveBeenCalledWith(
+      'tab-existing',
+      'leaf-existing'
+    )
   })
 })

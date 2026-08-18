@@ -4102,6 +4102,9 @@ const api = {
     notifyTerminalStartupCommandLatched: (tabId: string): void => {
       ipcRenderer.send('terminal:startupCommandLatched', { tabId })
     },
+    notifyTerminalStartupCommandUndeliverable: (tabId: string, leafId: string): void => {
+      ipcRenderer.send('terminal:startupCommandUndeliverable', { tabId, leafId })
+    },
     onSplitTerminal: (
       callback: (data: {
         tabId: string

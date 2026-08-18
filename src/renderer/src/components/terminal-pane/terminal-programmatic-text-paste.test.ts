@@ -274,9 +274,10 @@ describe('terminal programmatic text paste', () => {
     expect(mocks.recordTerminalUserInputForLeaf).not.toHaveBeenCalled()
   })
 
-  it('delivers when the resolved pane is already on the expected ptyId', async () => {
+  it('reports onUndeliverable synchronously when the ptyId mismatch skips delivery (orca-tracker-qw0)', () => {
     const pane = makePane()
     const transport = makeTransport() // getPtyId() -> 'pty-1'
+    const onUndeliverable = vi.fn()
 
     handleTerminalProgrammaticTextPaste({
       detail: {
@@ -284,7 +285,33 @@ describe('terminal programmatic text paste', () => {
         tabId: 'tab-1',
         text: 'echo hi',
         runAfterPaste: true,
-        expectedPtyId: 'pty-1'
+        expectedPtyId: 'pty-2',
+        onUndeliverable
+      },
+      getManager: () => makeManager(pane) as never,
+      getPaneTransports: () => new Map([[pane.id, transport]]) as never,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    })
+
+    // Why: the guard returns before any async paste work starts, so a caller
+    // reading the outcome right after the call (no await) must already see it
+    // -- this is what lets useIpcEvents fold the result into the same reply
+    // it sends synchronously afterward, no timers or polling involved.
+    expect(onUndeliverable).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not call onUndeliverable when no expectedPtyId is set', async () => {
+    const pane = makePane()
+    const transport = makeTransport()
+    const onUndeliverable = vi.fn()
+
+    handleTerminalProgrammaticTextPaste({
+      detail: {
+        leafId: 'leaf-1',
+        tabId: 'tab-1',
+        text: 'echo hi',
+        onUndeliverable
       },
       getManager: () => makeManager(pane) as never,
       getPaneTransports: () => new Map([[pane.id, transport]]) as never,
@@ -292,6 +319,32 @@ describe('terminal programmatic text paste', () => {
       worktreeId: 'wt-1'
     })
     await flushPasteTasks()
+
+    expect(onUndeliverable).not.toHaveBeenCalled()
+  })
+
+  it('delivers when the resolved pane is already on the expected ptyId', async () => {
+    const pane = makePane()
+    const transport = makeTransport() // getPtyId() -> 'pty-1'
+    const onUndeliverable = vi.fn()
+
+    handleTerminalProgrammaticTextPaste({
+      detail: {
+        leafId: 'leaf-1',
+        tabId: 'tab-1',
+        text: 'echo hi',
+        runAfterPaste: true,
+        expectedPtyId: 'pty-1',
+        onUndeliverable
+      },
+      getManager: () => makeManager(pane) as never,
+      getPaneTransports: () => new Map([[pane.id, transport]]) as never,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    })
+    await flushPasteTasks()
+
+    expect(onUndeliverable).not.toHaveBeenCalled()
 
     expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-1')
     expect(transport.sendInput).toHaveBeenCalledWith('\r')

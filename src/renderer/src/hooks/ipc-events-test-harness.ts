@@ -122,6 +122,7 @@ export type IpcEventsHarness = {
   createTerminal: (request: CreateTerminalRequest) => void
   requestTerminalCreate: (request: RequestTerminalCreateRequest) => void
   replyTerminalCreate: ReturnType<typeof vi.fn>
+  notifyTerminalStartupCommandUndeliverable: ReturnType<typeof vi.fn>
   /** Fire a main-process digit chord (zero-based index). */
   jumpToWorktreeIndex: (index: number) => void
   jumpToTabIndex: (index: number) => void
@@ -145,6 +146,7 @@ export async function loadIpcEventsHarness(
   options: IpcEventsHarnessOptions = {}
 ): Promise<IpcEventsHarness> {
   const replyTerminalCreate = vi.fn()
+  const notifyTerminalStartupCommandUndeliverable = vi.fn()
   const activateAndRevealWorkspace = vi.fn()
   let createTerminalListener: ((request: CreateTerminalRequest) => void) | null = null
   let requestTerminalCreateListener: ((request: RequestTerminalCreateRequest) => void) | null = null
@@ -205,6 +207,7 @@ export async function loadIpcEventsHarness(
           replyTabClose: vi.fn(),
           replyTabSetProfile: vi.fn(),
           replyTerminalCreate,
+          notifyTerminalStartupCommandUndeliverable,
           onCreateTerminal: (listener: (request: CreateTerminalRequest) => void) => {
             createTerminalListener = listener
             return () => {}
@@ -284,6 +287,7 @@ export async function loadIpcEventsHarness(
       requestTerminalCreateListener(request)
     },
     replyTerminalCreate,
+    notifyTerminalStartupCommandUndeliverable,
     jumpToWorktreeIndex: (index) => fireIndexJump(indexJumpListeners, 'worktree', index),
     jumpToTabIndex: (index) => fireIndexJump(indexJumpListeners, 'tab', index),
     navigationUpdate: (event) => {

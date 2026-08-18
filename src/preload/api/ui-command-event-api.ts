@@ -160,6 +160,13 @@ export type UiCommandEventApi = {
    *  live into an already-mounted pane); lets the main-process caller of
    *  createTerminal distinguish "latched" from "silently dropped". */
   notifyTerminalStartupCommandLatched: (tabId: string) => void
+  /** The reused-leaf live-delivery path (orca-tracker-qwb) found the pane's
+   *  live transport still on a different ptyId than the one it targeted -- a
+   *  genuine reconnect, not the already-connected reuse case -- and skipped
+   *  the paste rather than typing into the wrong shell. Lets a caller waiting
+   *  on createTerminal's handle learn the command was dropped instead of
+   *  guessing from silence (orca-tracker-qw0). */
+  notifyTerminalStartupCommandUndeliverable: (tabId: string, leafId: string) => void
   onSplitTerminal: (
     callback: (data: {
       tabId: string

@@ -46,6 +46,7 @@ export function handleTerminalProgrammaticTextPaste({
   const transport = paneTransports.get(pane.id)
   const ptyId = transport?.getPtyId() ?? null
   if (detail.expectedPtyId !== undefined && ptyId !== detail.expectedPtyId) {
+    detail.onUndeliverable?.()
     return
   }
   const platform = getShortcutPlatform()

@@ -58,6 +58,11 @@ export type PasteTerminalTextDetail = {
    *  reconnect the transport layer doesn't do in-place), and pasting there
    *  would type the command into the wrong shell. */
   expectedPtyId?: string
+  /** Called when expectedPtyId blocks delivery (the leaf hasn't reconnected to
+   *  the new pty yet, a genuine hot-swap rather than the already-connected
+   *  reuse case runAfterPaste normally covers). Lets the dispatcher report the
+   *  drop instead of the command silently vanishing (orca-tracker-qw0). */
+  onUndeliverable?: () => void
 }
 
 export type SplitTerminalPaneDetail = {

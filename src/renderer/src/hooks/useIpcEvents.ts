@@ -1720,7 +1720,13 @@ export function useIpcEvents(): void {
                       // isn't connected to yet (a real reconnect, not this
                       // race); only deliver when the live pane is already on
                       // the exact pty the caller asked to target.
-                      ...(ptyId ? { expectedPtyId: ptyId } : {})
+                      ...(ptyId ? { expectedPtyId: ptyId } : {}),
+                      // Why: the expectedPtyId guard above fails safe by
+                      // skipping delivery silently; ack the drop so a caller
+                      // waiting on this handle can tell "dropped" from "still
+                      // running" instead of guessing from silence (qw0).
+                      onUndeliverable: () =>
+                        window.api.ui.notifyTerminalStartupCommandUndeliverable(tab.id, leafId)
                     }
                   })
                 )
