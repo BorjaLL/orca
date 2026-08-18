@@ -135,3 +135,160 @@ describe('terminal send CLI', () => {
     })
   })
 })
+
+describe('terminal send missing-enter guard', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('warns when an instruction is pasted without --enter', async () => {
+    const call = vi.fn().mockResolvedValue({
+      result: { send: { handle: 'term-1', accepted: true, bytesWritten: 19 } }
+    })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await TERMINAL_HANDLERS['terminal send']({
+      flags: new Map<string, string | true>([
+        ['terminal', 'term-1'],
+        ['text', 'Execute your brief.']
+      ]),
+      client: { call } as unknown as RuntimeClient,
+      cwd: '/tmp/worktree',
+      json: true
+    })
+
+    expect(String(error.mock.calls[0]?.[0])).toContain('not submitted (no --enter)')
+  })
+
+  it('stays quiet when the send submits', async () => {
+    const call = vi.fn().mockResolvedValue({
+      result: { send: { handle: 'term-1', accepted: true, bytesWritten: 19 } }
+    })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await TERMINAL_HANDLERS['terminal send']({
+      flags: new Map<string, string | true>([
+        ['terminal', 'term-1'],
+        ['text', 'Execute your brief.'],
+        ['enter', true]
+      ]),
+      client: { call } as unknown as RuntimeClient,
+      cwd: '/tmp/worktree',
+      json: true
+    })
+
+    expect(error).not.toHaveBeenCalled()
+  })
+})
+
+describe('terminal create startup command verification', () => {
+  const previousExitCode = process.exitCode
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    process.exitCode = previousExitCode
+  })
+
+  function createClient(tailsByCall: string[][]): ReturnType<typeof vi.fn> {
+    let reads = 0
+    return vi.fn(async (method: string) => {
+      if (method === 'terminal.create') {
+        return {
+          result: { terminal: { handle: 'term-1', worktreeId: 'wt-1', title: null } }
+        }
+      }
+      if (method === 'terminal.read') {
+        const tail = tailsByCall[Math.min(reads, tailsByCall.length - 1)] ?? []
+        reads += 1
+        return { result: { terminal: { handle: 'term-1', status: 'running', tail } } }
+      }
+      return { result: { send: { handle: 'term-1', accepted: true, bytesWritten: 5 } } }
+    })
+  }
+
+  function createFlags(extra: [string, string | true][]): Map<string, string | true> {
+    return new Map<string, string | true>([
+      ['worktree', 'path:/tmp/worktree'],
+      ['command', 'codex "fix the flaky test"'],
+      ['verify-timeout-ms', '1'],
+      ...extra
+    ])
+  }
+
+  it('confirms a latched command without touching the exit code', async () => {
+    const call = createClient([['$ codex "fix the flaky test"']])
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    process.exitCode = 0
+
+    await TERMINAL_HANDLERS['terminal create']({
+      flags: createFlags([['verify-command', true]]),
+      client: { call, isRemote: false } as unknown as RuntimeClient,
+      cwd: '/tmp/worktree',
+      json: false
+    })
+
+    expect(String(log.mock.calls[0]?.[0])).toContain('startup command: confirmed')
+    expect(process.exitCode).toBe(0)
+  })
+
+  it('fails loudly when the command never reached the terminal', async () => {
+    const call = createClient([['Welcome to Codex', '> ']])
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    process.exitCode = 0
+
+    await TERMINAL_HANDLERS['terminal create']({
+      flags: createFlags([['verify-command', true]]),
+      client: { call, isRemote: false } as unknown as RuntimeClient,
+      cwd: '/tmp/worktree',
+      json: false
+    })
+
+    expect(String(error.mock.calls[0]?.[0])).toContain(
+      'orca terminal send --terminal term-1 --enter'
+    )
+    expect(process.exitCode).toBe(1)
+  })
+
+  it('resends a dropped command with --recover-command and reports the repair', async () => {
+    const call = createClient([['Welcome to Codex', '> '], ['$ codex "fix the flaky test"']])
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    process.exitCode = 0
+
+    await TERMINAL_HANDLERS['terminal create']({
+      flags: createFlags([['recover-command', true]]),
+      client: { call, isRemote: false } as unknown as RuntimeClient,
+      cwd: '/tmp/worktree',
+      json: false
+    })
+
+    expect(call).toHaveBeenCalledWith(
+      'terminal.send',
+      expect.objectContaining({
+        terminal: 'term-1',
+        text: 'codex "fix the flaky test"',
+        enter: true
+      })
+    )
+    expect(String(log.mock.calls[0]?.[0])).toContain('dropped by create, resent and confirmed')
+    expect(process.exitCode).toBe(0)
+  })
+
+  it('rejects verification without a command to verify', async () => {
+    const call = createClient([[]])
+
+    await expect(
+      TERMINAL_HANDLERS['terminal create']({
+        flags: new Map<string, string | true>([
+          ['worktree', 'path:/tmp/worktree'],
+          ['verify-command', true]
+        ]),
+        client: { call, isRemote: false } as unknown as RuntimeClient,
+        cwd: '/tmp/worktree',
+        json: false
+      })
+    ).rejects.toThrow('--verify-command and --recover-command require --command')
+  })
+})

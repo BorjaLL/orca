@@ -245,7 +245,7 @@ Common Commands:
   orca terminal send [--terminal <handle>] [--text <text>] [--enter] [--interrupt] [--json]
   orca terminal wait [--terminal <handle>] --for exit|tui-idle [--timeout-ms <ms>] [--json]
   orca terminal stop --worktree <selector> [--json]
-  orca terminal create [--worktree <selector>] [--title <name>] [--command <text>] [--focus] [--json]
+  orca terminal create [--worktree <selector>] [--title <name>] [--command <text>] [--focus] [--verify-command] [--recover-command] [--verify-timeout-ms <ms>] [--json]
   orca terminal split [--terminal <handle>] [--direction horizontal|vertical] [--json]
   orca terminal switch [--terminal <handle>] [--json]
   orca terminal close [--terminal <handle>] [--tab] [--json]

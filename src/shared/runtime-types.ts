@@ -697,6 +697,17 @@ export type RuntimeTerminalCreate = {
   agentSessionDisposition?: 'created' | 'adopted'
   /** The host attached this request to the existing stable pane owner. */
   isReattach?: true
+  /**
+   * Client-side proof that the requested startup command reached the terminal.
+   * Absent unless the caller asked for verification; the host never sets it.
+   */
+  startupCommandVerification?: {
+    requested: true
+    latched: boolean
+    attempts: number
+    /** The command was resent after a drop, and the resend landed. */
+    recovered?: boolean
+  }
 }
 
 export type RuntimeTerminalSplit = {

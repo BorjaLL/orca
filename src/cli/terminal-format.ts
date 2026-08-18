@@ -168,11 +168,27 @@ export function formatTerminalRename(result: { rename: RuntimeTerminalRename }):
     : `Cleared title for terminal ${result.rename.handle}.`
 }
 
+/** Reports what verification proved, so "created" never stands in for "started working". */
+function describeStartupCommandVerification(terminal: RuntimeTerminalCreate): string {
+  const verification = terminal.startupCommandVerification
+  if (!verification) {
+    return ''
+  }
+  if (verification.recovered) {
+    return '\nstartup command: dropped by create, resent and confirmed.'
+  }
+  if (verification.latched) {
+    return '\nstartup command: confirmed in the terminal.'
+  }
+  return '\nstartup command: NOT confirmed in the terminal.'
+}
+
 export function formatTerminalCreate(result: { terminal: RuntimeTerminalCreate }): string {
   const titleNote = result.terminal.title ? ` (title: "${result.terminal.title}")` : ''
   const surfaceNote = result.terminal.surface ? ` [${result.terminal.surface}]` : ''
   const warningNote = result.terminal.warning ? `\nwarning: ${result.terminal.warning}` : ''
-  return `Created terminal ${result.terminal.handle}${titleNote}${surfaceNote}${warningNote}`
+  const verificationNote = describeStartupCommandVerification(result.terminal)
+  return `Created terminal ${result.terminal.handle}${titleNote}${surfaceNote}${warningNote}${verificationNote}`
 }
 
 export function formatTerminalSplit(result: { split: RuntimeTerminalSplit }): string {
