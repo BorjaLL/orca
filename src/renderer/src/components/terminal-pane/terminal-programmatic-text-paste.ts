@@ -34,15 +34,20 @@ export function handleTerminalProgrammaticTextPaste({
   }
   const panes = manager.getPanes()
   const pane =
-    typeof detail.paneId === 'number'
-      ? (panes.find((candidate) => candidate.id === detail.paneId) ?? null)
-      : (manager.getActivePane() ?? panes[0])
+    typeof detail.leafId === 'string'
+      ? (panes.find((candidate) => candidate.leafId === detail.leafId) ?? null)
+      : typeof detail.paneId === 'number'
+        ? (panes.find((candidate) => candidate.id === detail.paneId) ?? null)
+        : (manager.getActivePane() ?? panes[0])
   if (!pane) {
     return
   }
   const paneTransports = getPaneTransports()
   const transport = paneTransports.get(pane.id)
   const ptyId = transport?.getPtyId() ?? null
+  if (detail.expectedPtyId !== undefined && ptyId !== detail.expectedPtyId) {
+    return
+  }
   const platform = getShortcutPlatform()
   const connectionId = getConnectionId(worktreeId) ?? null
   void planTerminalPasteWithYield({
@@ -93,6 +98,19 @@ export function handleTerminalProgrammaticTextPaste({
       }
       recordTerminalUserInputForLeaf(tabId, pane.leafId)
       pane.terminal.focus()
+      if (
+        detail.runAfterPaste &&
+        isTerminalPanePasteTargetCurrent({
+          manager: getManager(),
+          paneTransports: getPaneTransports(),
+          paneId: pane.id,
+          leafId: pane.leafId,
+          transport,
+          ptyId
+        })
+      ) {
+        transport?.sendInput('\r')
+      }
     })
 }
 

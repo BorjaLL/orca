@@ -184,4 +184,116 @@ describe('terminal programmatic text paste', () => {
     expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-2')
     expect(targetPane.terminal.focus).toHaveBeenCalledOnce()
   })
+
+  it('resolves the target pane by leafId when provided', async () => {
+    const activePane = makePane()
+    const targetPane = {
+      ...makePane(),
+      id: 2,
+      leafId: 'leaf-2'
+    }
+    const activeTransport = makeTransport()
+    const targetTransport = makeTransport()
+
+    handleTerminalProgrammaticTextPaste({
+      detail: { leafId: 'leaf-2', tabId: 'tab-1', text: 'echo hi' },
+      getManager: () => makeManagerWithPanes(activePane, [activePane, targetPane]) as never,
+      getPaneTransports: () =>
+        new Map([
+          [activePane.id, activeTransport],
+          [targetPane.id, targetTransport]
+        ]) as never,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    })
+    await flushPasteTasks()
+
+    expect(mocks.pasteTerminalText).toHaveBeenCalledWith(targetPane.terminal, 'echo hi', {
+      forceBracketedPaste: false
+    })
+    expect(activeTransport.sendInput).not.toHaveBeenCalled()
+    expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-2')
+  })
+
+  it('sends Enter after a successful paste when runAfterPaste is set (mounted-tab startup delivery)', async () => {
+    const pane = makePane()
+    const transport = makeTransport()
+
+    handleTerminalProgrammaticTextPaste({
+      detail: { leafId: 'leaf-1', tabId: 'tab-1', text: 'echo hi', runAfterPaste: true },
+      getManager: () => makeManager(pane) as never,
+      getPaneTransports: () => new Map([[pane.id, transport]]) as never,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    })
+    await flushPasteTasks()
+
+    expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-1')
+    expect(transport.sendInput).toHaveBeenCalledWith('\r')
+  })
+
+  it('does not auto-run the pasted text when runAfterPaste is unset', async () => {
+    const pane = makePane()
+    const transport = makeTransport()
+
+    handleTerminalProgrammaticTextPaste({
+      detail: { leafId: 'leaf-1', tabId: 'tab-1', text: 'echo hi' },
+      getManager: () => makeManager(pane) as never,
+      getPaneTransports: () => new Map([[pane.id, transport]]) as never,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    })
+    await flushPasteTasks()
+
+    expect(transport.sendInput).not.toHaveBeenCalledWith('\r')
+  })
+
+  it('skips delivery when the resolved pane is not on the expected ptyId (reused leaf reconnected to a different pty)', async () => {
+    mocks.pasteTerminalText.mockClear()
+    mocks.recordTerminalUserInputForLeaf.mockClear()
+    const pane = makePane()
+    const transport = makeTransport() // getPtyId() -> 'pty-1'
+
+    handleTerminalProgrammaticTextPaste({
+      detail: {
+        leafId: 'leaf-1',
+        tabId: 'tab-1',
+        text: 'echo hi',
+        runAfterPaste: true,
+        expectedPtyId: 'pty-2'
+      },
+      getManager: () => makeManager(pane) as never,
+      getPaneTransports: () => new Map([[pane.id, transport]]) as never,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    })
+    await flushPasteTasks()
+
+    expect(mocks.pasteTerminalText).not.toHaveBeenCalled()
+    expect(transport.sendInput).not.toHaveBeenCalled()
+    expect(mocks.recordTerminalUserInputForLeaf).not.toHaveBeenCalled()
+  })
+
+  it('delivers when the resolved pane is already on the expected ptyId', async () => {
+    const pane = makePane()
+    const transport = makeTransport() // getPtyId() -> 'pty-1'
+
+    handleTerminalProgrammaticTextPaste({
+      detail: {
+        leafId: 'leaf-1',
+        tabId: 'tab-1',
+        text: 'echo hi',
+        runAfterPaste: true,
+        expectedPtyId: 'pty-1'
+      },
+      getManager: () => makeManager(pane) as never,
+      getPaneTransports: () => new Map([[pane.id, transport]]) as never,
+      tabId: 'tab-1',
+      worktreeId: 'wt-1'
+    })
+    await flushPasteTasks()
+
+    expect(mocks.recordTerminalUserInputForLeaf).toHaveBeenCalledWith('tab-1', 'leaf-1')
+    expect(transport.sendInput).toHaveBeenCalledWith('\r')
+  })
 })

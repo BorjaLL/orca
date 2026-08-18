@@ -12,7 +12,12 @@ import { runWorktreeDelete } from '@/components/sidebar/delete-worktree-flow'
 import { runSleepWorktree } from '@/components/sidebar/sleep-worktree-flow'
 import { createBackgroundSleepingAgentWakeDispatcher } from '@/lib/wake-sleeping-agents-in-background'
 import { TOGGLE_WORKSPACE_BOARD_EVENT } from '@/components/sidebar/useWorkspaceBoardPanel'
-import { SPLIT_TERMINAL_PANE_EVENT, CLOSE_TERMINAL_PANE_EVENT } from '@/constants/terminal'
+import {
+  SPLIT_TERMINAL_PANE_EVENT,
+  CLOSE_TERMINAL_PANE_EVENT,
+  PASTE_TERMINAL_TEXT_EVENT,
+  type PasteTerminalTextDetail
+} from '@/constants/terminal'
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
 import { planMobileTerminalTabMount } from '@/lib/mobile-terminal-tab-mount'
 import { resolveTerminalTabPtyOwnership } from '@/lib/terminal-tab-for-pty-id'
@@ -1697,6 +1702,29 @@ export function useIpcEvents(): void {
                 ...(launchToken ? { launchToken } : {}),
                 ...(launchAgent ? { launchAgent } : {})
               })
+              if (reusedTab && leafId) {
+                // Why: TerminalPane reads pendingStartupByTabId once, in a
+                // one-shot useState at mount (TerminalPane.tsx). A reused
+                // tab's pane is already mounted, so that queue entry above
+                // would never be consumed and the command would silently
+                // strand. Deliver it directly into the live, already
+                // -connected pane instead (orca-tracker-qwb).
+                window.dispatchEvent(
+                  new CustomEvent<PasteTerminalTextDetail>(PASTE_TERMINAL_TEXT_EVENT, {
+                    detail: {
+                      tabId: tab.id,
+                      leafId,
+                      text: command,
+                      runAfterPaste: true,
+                      // Why: this leaf may have been reused for a ptyId it
+                      // isn't connected to yet (a real reconnect, not this
+                      // race); only deliver when the live pane is already on
+                      // the exact pty the caller asked to target.
+                      ...(ptyId ? { expectedPtyId: ptyId } : {})
+                    }
+                  })
+                )
+              }
             }
             if (ptyId && terminalPresentation === 'background') {
               requestBackgroundTerminalWorktreeMount({ worktreeId, tabIds: [tab.id] })

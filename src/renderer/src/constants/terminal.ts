@@ -43,7 +43,21 @@ export type FocusTerminalPaneDetail = {
 export type PasteTerminalTextDetail = {
   tabId: string
   paneId?: number
+  /** Resolve the target pane by its durable leaf id instead of a numeric
+   *  runtime id. Why: a caller outside the mounted pane's PaneManager (e.g.
+   *  terminal.create delivering to an already-mounted/reused tab) only knows
+   *  the leaf id; numeric pane ids are renderer-local and can be reminted. */
+  leafId?: string
   text: string
+  /** Auto-execute (send Enter) once the paste lands, like a startup command,
+   *  instead of leaving it for the user to review before running it. */
+  runAfterPaste?: boolean
+  /** Guard for delivery into an already-connected pane: skip the paste if the
+   *  resolved pane's live transport isn't already on this exact ptyId. Why:
+   *  the resolved leaf can be reused for a genuinely different ptyId (a
+   *  reconnect the transport layer doesn't do in-place), and pasting there
+   *  would type the command into the wrong shell. */
+  expectedPtyId?: string
 }
 
 export type SplitTerminalPaneDetail = {
