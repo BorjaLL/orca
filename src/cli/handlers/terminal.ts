@@ -83,10 +83,20 @@ export async function annotateStartupCommandVerification(args: {
   const probe = {
     command: args.command,
     readTail: async (): Promise<string[]> => {
-      const read = await args.client.call<{ terminal: RuntimeTerminalRead }>('terminal.read', {
-        terminal: handle
-      })
-      return read.result.terminal.tail
+      try {
+        const read = await args.client.call<{ terminal: RuntimeTerminalRead }>('terminal.read', {
+          terminal: handle
+        })
+        return read.result.terminal.tail
+      } catch (error) {
+        // Why: a parked handle (orca-tracker-er7) fails reads until its PTY
+        // binds; keep polling instead of turning a pending handle into an
+        // ok:false create.
+        if (error instanceof RuntimeClientError && error.code === 'terminal_handle_pending') {
+          return []
+        }
+        throw error
+      }
     },
     sleep: args.sleepFn ?? sleep,
     now: args.nowFn ?? Date.now,

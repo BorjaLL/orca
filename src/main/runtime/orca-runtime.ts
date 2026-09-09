@@ -647,6 +647,10 @@ import { RuntimeBrowserCommands } from './orca-runtime-browser'
 import { RemoteRuntimeTerminalCreateIdempotency } from './remote-runtime-terminal-create-idempotency'
 import { deriveRemoteRuntimeTerminalCreateHandle } from './remote-runtime-terminal-create-identity'
 import {
+  RendererTerminalCreatePendingHandles,
+  TerminalHandlePendingError
+} from './renderer-terminal-create-pending-handles'
+import {
   buildHeadlessTerminalSplitLayout,
   countTerminalLayoutLeaves,
   terminalLayoutContainsLeaf
@@ -2071,6 +2075,8 @@ async function waitForAgentPromptDelay(delayMs: number, signal?: AbortSignal): P
 }
 
 const MOBILE_TERMINAL_SURFACE_TIMEOUT_MS = 10_000
+const RENDERER_TERMINAL_HANDLE_TIMEOUT_MS = 30_000
+const TERMINAL_HANDLE_WAIT_TIMEOUT_MESSAGE = 'Timed out waiting for terminal handle after creation'
 // Why: the split already failed; the caller waits on this teardown only to learn whether the
 // fallback kill is needed, so keep it short — an unreachable host must not stall the rejection.
 const REJECTED_SPLIT_PTY_STOP_TIMEOUT_MS = 2_000
@@ -2094,6 +2100,20 @@ function createTerminalRevealWarning(handle: string, error?: unknown): string {
   return [
     `Terminal ${handle} is running, but Orca could not make it discoverable.${reason}`,
     `Run \`orca terminal focus --terminal ${handle}\` to reveal and focus it.`
+  ].join(' ')
+}
+
+/** The handle wait timed out before the tab's PTY registered or graph sync delivered the leaf; the tab is real, so name it and tell the caller to keep the handle instead of retrying. */
+function createTerminalHandlePendingWarning(
+  handle: string,
+  tabId: string,
+  timeoutMs: number
+): string {
+  return [
+    `Terminal tab ${tabId} was created, but its terminal did not register within ${timeoutMs / 1000}s.`,
+    'The tab exists; do not create another.',
+    `Handle ${handle} binds to it once the terminal registers, and terminal commands on it fail with terminal_handle_pending until then.`,
+    `Check with: orca terminal list --json (tabId ${tabId}).`
   ].join(' ')
 }
 
@@ -3035,6 +3055,7 @@ export class OrcaRuntimeService {
     Promise<RuntimeMobileSessionCreateTerminalResult>
   >()
   private readonly terminalCreateIdempotency = new RemoteRuntimeTerminalCreateIdempotency()
+  private readonly pendingRendererCreateHandles = new RendererTerminalCreatePendingHandles()
   // Why: concurrent clients sleeping one host workspace must share one physical teardown.
   private terminalSleepByWorktreeId = new Map<string, Promise<RuntimeWorktreeTerminalSleepResult>>()
   private terminalMutationTailByWorktreeId = new Map<string, Promise<void>>()
@@ -10697,6 +10718,9 @@ export class OrcaRuntimeService {
       ...(binding && paneKey ? { tabId: binding.tabId, paneKey } : {}),
       ...(binding?.incarnationId ? { incarnationId: binding.incarnationId } : {})
     })
+    if (binding && paneKey) {
+      this.bindParkedTerminalCreateHandle(binding.tabId, ptyId)
+    }
     const agentLaunchAuthority = binding?.agentLaunchAuthority
     if (
       agentLaunchAuthority &&
@@ -27951,7 +27975,11 @@ export class OrcaRuntimeService {
     const reply = await new Promise<{ tabId: string; title: string }>((resolve, reject) => {
       const timer = setTimeout(() => {
         ipcMain.removeListener('terminal:tabCreateReply', handler)
-        reject(new Error('Terminal creation timed out'))
+        reject(
+          new Error(
+            'Terminal creation timed out waiting for the renderer to confirm the tab. The tab may still open; reconcile with `orca terminal list --json` before creating another.'
+          )
+        )
       }, 10_000)
 
       const handler = (
@@ -27998,22 +28026,31 @@ export class OrcaRuntimeService {
       : null
 
     // Why: the renderer created the tab immediately, but the graph sync that
-    // populates this.leaves may not have arrived yet. Wait for the leaf to
-    // appear so we can return a valid handle the caller can use right away.
-    const handle = await this.waitForTerminalHandle(reply.tabId)
+    // populates this.leaves may not have arrived yet. Settle for a handle -
+    // live if the wait resolves, parked (real, not yet bound) if it times out -
+    // so a timeout is never indistinguishable from "no tab was created"
+    // (orca-tracker-er7).
+    const settled = await this.settleRendererTerminalHandle(reply.tabId, worktreeId)
+    const handle = settled.handle
     const startupCommandLatched = startupCommandLatchWait ? await startupCommandLatchWait : true
+    const warnings: string[] = []
+    if (settled.pending) {
+      warnings.push(
+        createTerminalHandlePendingWarning(handle, reply.tabId, RENDERER_TERMINAL_HANDLE_TIMEOUT_MS)
+      )
+    }
+    if (!startupCommandLatched) {
+      warnings.push(createTerminalStartupCommandNotLatchedWarning(handle, launchOpts.command!))
+    }
     return {
       handle,
       tabId: reply.tabId,
       worktreeId: worktreeId ?? '',
       title: reply.title,
-      ...this.getPtyExecutionHostMetadata(this.handles.get(handle)?.ptyId ?? null),
+      ...this.getPtyExecutionHostMetadata(settled.ptyId),
       surface: 'visible',
-      ...(startupCommandLatched
-        ? {}
-        : {
-            warning: createTerminalStartupCommandNotLatchedWarning(handle, launchOpts.command!)
-          })
+      ...(settled.pending ? { handlePending: true as const } : {}),
+      ...(warnings.length > 0 ? { warning: warnings.join(' ') } : {})
     }
   }
 
@@ -28956,6 +28993,67 @@ export class OrcaRuntimeService {
     }
   }
 
+  /**
+   * Resolves a handle for a just-created renderer tab. If the graph-sync wait
+   * times out, the tab is real (the renderer already confirmed it) even though
+   * main cannot yet prove a PTY backs it, so this parks a handle on the tabId
+   * instead of rejecting (orca-tracker-er7). A PTY that registered before the
+   * timeout but whose leaf graph sync hasn't delivered yet resolves immediately
+   * through the pty-first path.
+   */
+  private async settleRendererTerminalHandle(
+    tabId: string,
+    worktreeId: string | undefined
+  ): Promise<{ handle: string; ptyId: string | null; pending: boolean }> {
+    try {
+      const handle = await this.waitForTerminalHandle(tabId, RENDERER_TERMINAL_HANDLE_TIMEOUT_MS)
+      return { handle, ptyId: this.handles.get(handle)?.ptyId ?? null, pending: false }
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== TERMINAL_HANDLE_WAIT_TIMEOUT_MESSAGE) {
+        throw error
+      }
+    }
+
+    const live = this.findLiveShellForTab(tabId, worktreeId)
+    const handle = this.createPreAllocatedTerminalHandle()
+    if (live) {
+      this.registerPreAllocatedHandleForPty(live.ptyId, handle)
+      return { handle, ptyId: live.ptyId, pending: false }
+    }
+    this.pendingRendererCreateHandles.park(tabId, handle)
+    return { handle, ptyId: null, pending: true }
+  }
+
+  /** A PTY can register (registerPty) before graph sync delivers the leaf that would let resolveHandleForTab find it. */
+  private findLiveShellForTab(tabId: string, worktreeId?: string): RuntimePtyWorktreeRecord | null {
+    for (const pty of this.ptysById.values()) {
+      if (pty.tabId === tabId && pty.connected && (!worktreeId || pty.worktreeId === worktreeId)) {
+        return pty
+      }
+    }
+    return null
+  }
+
+  /** Binds a handle parked on tabId to the PTY that just proved the tab is real. Called from both binding directions (PTY-first via registerPty, leaf-first via issueHandle) so whichever proof lands first wins. */
+  private bindParkedTerminalCreateHandle(tabId: string, ptyId: string): void {
+    const handle = this.pendingRendererCreateHandles.take(tabId)
+    if (handle) {
+      this.registerPreAllocatedHandleForPty(ptyId, handle)
+    }
+  }
+
+  /** Calling resolveHandleForTab first is what self-heals: if graph sync has since delivered the leaf, issueHandle's own hook binds the parked handle before this can throw. */
+  private assertTerminalHandleNotPending(handle: string): void {
+    const tabId = this.pendingRendererCreateHandles.tabIdFor(handle)
+    if (tabId === null) {
+      return
+    }
+    if (this.resolveHandleForTab(tabId) !== null) {
+      return
+    }
+    throw new TerminalHandlePendingError(handle, tabId)
+  }
+
   private waitForTerminalHandle(tabId: string, timeoutMs = 10_000): Promise<string> {
     const existing = this.resolveHandleForTab(tabId)
     if (existing) {
@@ -28968,7 +29066,7 @@ export class OrcaRuntimeService {
         if (idx !== -1) {
           this.graphSyncCallbacks.splice(idx, 1)
         }
-        reject(new Error('Timed out waiting for terminal handle after creation'))
+        reject(new Error(TERMINAL_HANDLE_WAIT_TIMEOUT_MESSAGE))
       }, timeoutMs)
 
       const check = (): void => {
@@ -34556,6 +34654,7 @@ export class OrcaRuntimeService {
     leaf: RuntimeLeafRecord
   } {
     this.assertGraphReady()
+    this.assertTerminalHandleNotPending(handle)
     const record = this.handles.get(handle)
     if (!record || record.runtimeId !== this.runtimeId) {
       throw new Error('terminal_handle_stale')
@@ -34649,6 +34748,9 @@ export class OrcaRuntimeService {
       }
     }
 
+    if (leaf.ptyId) {
+      this.bindParkedTerminalCreateHandle(leaf.tabId, leaf.ptyId)
+    }
     const preAllocatedHandle = this.adoptPreAllocatedHandle(leaf)
     if (preAllocatedHandle) {
       return preAllocatedHandle

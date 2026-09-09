@@ -693,6 +693,8 @@ export type RuntimeTerminalCreate = {
   hostPlatform?: NodeJS.Platform
   surface?: 'background' | 'visible'
   warning?: string
+  /** The tab exists but its terminal has not registered yet; the handle is real and parked on the tabId, not an error. Commands against it fail with `terminal_handle_pending` until it binds. */
+  handlePending?: true
   /** Present only for the structured host-authority resume path. */
   agentSessionDisposition?: 'created' | 'adopted'
   /** The host attached this request to the existing stable pane owner. */

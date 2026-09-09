@@ -186,9 +186,10 @@ function describeStartupCommandVerification(terminal: RuntimeTerminalCreate): st
 export function formatTerminalCreate(result: { terminal: RuntimeTerminalCreate }): string {
   const titleNote = result.terminal.title ? ` (title: "${result.terminal.title}")` : ''
   const surfaceNote = result.terminal.surface ? ` [${result.terminal.surface}]` : ''
+  const pendingNote = result.terminal.handlePending ? ' [handle pending]' : ''
   const warningNote = result.terminal.warning ? `\nwarning: ${result.terminal.warning}` : ''
   const verificationNote = describeStartupCommandVerification(result.terminal)
-  return `Created terminal ${result.terminal.handle}${titleNote}${surfaceNote}${warningNote}${verificationNote}`
+  return `Created terminal ${result.terminal.handle}${titleNote}${surfaceNote}${pendingNote}${warningNote}${verificationNote}`
 }
 
 export function formatTerminalSplit(result: { split: RuntimeTerminalSplit }): string {

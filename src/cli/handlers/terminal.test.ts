@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeClient } from '../runtime-client'
+import { RuntimeRpcFailureError } from '../runtime-client'
 import { parseArgs } from '../args'
 import { printHelp } from '../help'
 import { COMMAND_SPECS } from '../specs'
@@ -273,6 +274,62 @@ describe('terminal create startup command verification', () => {
       })
     )
     expect(String(log.mock.calls[0]?.[0])).toContain('dropped by create, resent and confirmed')
+    expect(process.exitCode).toBe(0)
+  })
+
+  // orca-tracker-er7: a parked terminal-create handle fails terminal.read with
+  // terminal_handle_pending until it binds. Verification must keep polling
+  // through that, not surface it as a failed create.
+  it('keeps polling through a pending handle and still confirms once it binds', async () => {
+    let reads = 0
+    const call = vi.fn(async (method: string) => {
+      if (method === 'terminal.create') {
+        return {
+          result: {
+            terminal: { handle: 'term-1', worktreeId: 'wt-1', title: null, handlePending: true }
+          }
+        }
+      }
+      if (method === 'terminal.read') {
+        reads += 1
+        if (reads === 1) {
+          throw new RuntimeRpcFailureError({
+            id: 'req_1',
+            ok: false,
+            error: {
+              code: 'terminal_handle_pending',
+              message: 'not bound yet',
+              data: { tabId: 'tab-1' }
+            }
+          })
+        }
+        return {
+          result: {
+            terminal: {
+              handle: 'term-1',
+              status: 'running',
+              tail: ['$ codex "fix the flaky test"']
+            }
+          }
+        }
+      }
+      return { result: { send: { handle: 'term-1', accepted: true, bytesWritten: 5 } } }
+    })
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    process.exitCode = 0
+
+    await TERMINAL_HANDLERS['terminal create']({
+      flags: createFlags([
+        ['verify-command', true],
+        ['verify-timeout-ms', '400']
+      ]),
+      client: { call, isRemote: false } as unknown as RuntimeClient,
+      cwd: '/tmp/worktree',
+      json: false
+    })
+
+    expect(reads).toBe(2)
+    expect(String(log.mock.calls[0]?.[0])).toContain('startup command: confirmed')
     expect(process.exitCode).toBe(0)
   })
 

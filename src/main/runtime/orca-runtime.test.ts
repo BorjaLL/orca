@@ -14491,6 +14491,159 @@ describe('OrcaRuntimeService', () => {
     expect(result.warning).toBeUndefined()
   })
 
+  // orca-tracker-er7: waitForTerminalHandle used to reject on timeout with a
+  // bare Error carrying no tabId, so every client's ok:false was
+  // indistinguishable from "no tab was created" and a blind retry duplicated
+  // the worker. The create now parks a real handle on the tabId instead.
+  it('parks a real handle on the tabId when the handle wait times out, instead of rejecting', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const webContents = { send: vi.fn() }
+      webContents.send.mockImplementation((_channel: string, payload: { requestId: string }) => {
+        ipcMain.emit(
+          'terminal:tabCreateReply',
+          { sender: webContents },
+          { requestId: payload.requestId, tabId: 'tab-pending', title: 'Shell' }
+        )
+        // Why: no graph sync ever delivers a leaf for this tab and no PTY
+        // registers -- simulates the graph-sync lag the bug report was about.
+      })
+      runtime.attachWindow(1)
+      runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+      electronMocks.BrowserWindow.fromId.mockReturnValue({
+        isDestroyed: () => false,
+        webContents
+      })
+
+      const resultPromise = runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        rendererBacked: true
+      })
+      await vi.advanceTimersByTimeAsync(30_000)
+      const result = await resultPromise
+
+      expect(result.tabId).toBe('tab-pending')
+      expect(result.handlePending).toBe(true)
+      expect(result.warning).toContain('tab-pending')
+
+      await expect(runtime.readTerminal(result.handle)).rejects.toMatchObject({
+        code: 'terminal_handle_pending'
+      })
+
+      runtime.syncWindowGraph(1, {
+        tabs: [],
+        leaves: [
+          {
+            tabId: 'tab-pending',
+            worktreeId: TEST_WORKTREE_ID,
+            leafId: HEADLESS_LEAF_ID,
+            paneRuntimeId: 1,
+            ptyId: 'pty-pending',
+            paneTitle: null
+          }
+        ]
+      })
+
+      const listed = await runtime.listTerminals()
+      expect(
+        listed.terminals.some((t) => t.handle === result.handle && t.tabId === 'tab-pending')
+      ).toBe(true)
+      await expect(runtime.readTerminal(result.handle)).resolves.toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('binds a parked handle as soon as its PTY registers, even before the next graph sync', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const webContents = { send: vi.fn() }
+      webContents.send.mockImplementation((_channel: string, payload: { requestId: string }) => {
+        ipcMain.emit(
+          'terminal:tabCreateReply',
+          { sender: webContents },
+          { requestId: payload.requestId, tabId: 'tab-late-pty', title: 'Shell' }
+        )
+      })
+      runtime.attachWindow(1)
+      runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+      electronMocks.BrowserWindow.fromId.mockReturnValue({
+        isDestroyed: () => false,
+        webContents
+      })
+
+      const resultPromise = runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        rendererBacked: true
+      })
+      await vi.advanceTimersByTimeAsync(30_000)
+      const result = await resultPromise
+      expect(result.handlePending).toBe(true)
+
+      runtime.registerPty('pty-late', TEST_WORKTREE_ID, null, {
+        tabId: 'tab-late-pty',
+        leafId: HEADLESS_LEAF_ID
+      })
+
+      await expect(runtime.readTerminal(result.handle)).resolves.toBeDefined()
+
+      runtime.syncWindowGraph(1, {
+        tabs: [],
+        leaves: [
+          {
+            tabId: 'tab-late-pty',
+            worktreeId: TEST_WORKTREE_ID,
+            leafId: HEADLESS_LEAF_ID,
+            paneRuntimeId: 1,
+            ptyId: 'pty-late',
+            paneTitle: null
+          }
+        ]
+      })
+
+      const listed = await runtime.listTerminals()
+      expect(listed.terminals.some((t) => t.handle === result.handle)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('resolves without handlePending when the PTY already registered by the time the handle wait times out', async () => {
+    vi.useFakeTimers()
+    try {
+      const runtime = new OrcaRuntimeService(store)
+      const webContents = { send: vi.fn() }
+      webContents.send.mockImplementation((_channel: string, payload: { requestId: string }) => {
+        runtime.registerPty('pty-registered', TEST_WORKTREE_ID, null, {
+          tabId: 'tab-registered',
+          leafId: HEADLESS_LEAF_ID
+        })
+        ipcMain.emit(
+          'terminal:tabCreateReply',
+          { sender: webContents },
+          { requestId: payload.requestId, tabId: 'tab-registered', title: 'Shell' }
+        )
+      })
+      runtime.attachWindow(1)
+      runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
+      electronMocks.BrowserWindow.fromId.mockReturnValue({
+        isDestroyed: () => false,
+        webContents
+      })
+
+      const resultPromise = runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`, {
+        rendererBacked: true
+      })
+      await vi.advanceTimersByTimeAsync(30_000)
+      const result = await resultPromise
+
+      expect(result.handlePending).toBeUndefined()
+      await expect(runtime.readTerminal(result.handle)).resolves.toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('injects runtime hook receiver env into terminal sessions', async () => {
     const spawn = vi.fn().mockResolvedValue({ id: 'pty-hooked' })
     const runtime = new OrcaRuntimeService(store, undefined, {

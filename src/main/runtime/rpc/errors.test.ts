@@ -5,6 +5,7 @@ import {
   ARTIFACT_SHARING_DISABLED_MESSAGE,
   ArtifactSharingDisabledError
 } from '../../../shared/artifact-sharing-gate'
+import { TerminalHandlePendingError } from '../renderer-terminal-create-pending-handles'
 
 class LineageError extends Error {
   code = 'LINEAGE_PARENT_NOT_FOUND'
@@ -207,6 +208,32 @@ describe('mapRuntimeError', () => {
         message: 'Parent selector was not found.',
         data: {
           nextSteps: ['Run `orca worktree list`.', 'Retry with --no-parent.']
+        }
+      },
+      _meta: { runtimeId: 'runtime-1' }
+    })
+  })
+
+  // orca-tracker-er7: a parked terminal-create handle must reach the CLI with
+  // its code, message, and tabId intact so a client can poll instead of
+  // treating the pending state as a failed create.
+  it('forwards a pending terminal handle code, message, and data', () => {
+    const response = mapRuntimeError(
+      'req_1',
+      { runtimeId: 'runtime-1' },
+      new TerminalHandlePendingError('term_pending', 'tab-1')
+    )
+
+    expect(response).toEqual({
+      id: 'req_1',
+      ok: false,
+      error: {
+        code: 'terminal_handle_pending',
+        message:
+          'Terminal handle term_pending is not bound yet: tab tab-1 exists but its terminal has not registered.',
+        data: {
+          tabId: 'tab-1',
+          nextSteps: expect.arrayContaining([expect.stringContaining('tab-1')])
         }
       },
       _meta: { runtimeId: 'runtime-1' }

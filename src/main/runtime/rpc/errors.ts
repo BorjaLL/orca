@@ -94,6 +94,7 @@ const STRUCTURED_RUNTIME_PASSTHROUGH_CODES: ReadonlySet<string> = new Set([
   'cursor_invalid',
   'cursor_dispatch_mismatch',
   'source_changed',
+  'terminal_handle_pending',
   'transcript_required',
   'server_required',
   'worktree_not_found_on_server',
