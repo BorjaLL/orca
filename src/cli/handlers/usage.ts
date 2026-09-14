@@ -47,7 +47,10 @@ function formatProviderUsage(provider: string, usage: ProviderRateLimits | null)
   const windows = [
     formatWindow('5h', usage.session),
     formatWindow('7d', usage.weekly),
-    formatWindow('30d', usage.monthly)
+    formatWindow('Fable 7d', usage.fableWeekly),
+    formatWindow('30d', usage.monthly),
+    // Gemini reports per-model quota as named buckets; each is a RateLimitWindow + name.
+    ...(usage.buckets ?? []).map((bucket) => formatWindow(bucket.name, bucket))
   ].filter((line): line is string => line !== null)
   const extras: string[] = []
   if (usage.planType) {

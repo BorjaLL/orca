@@ -113,6 +113,39 @@ describe('usage handler', () => {
     expect(output).not.toContain('claude')
   })
 
+  it('renders the Claude Fable weekly window instead of "no window data"', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { ctx } = contextFor(
+      stateWith({ claude: provider({ fableWeekly: window(63, 'Sun') }) }),
+      new Map([['provider', 'claude']])
+    )
+    await USAGE_HANDLERS.usage(ctx)
+    const output = log.mock.calls[0][0]
+    expect(output).toContain('Fable 7d 63% used (37% left), resets Sun')
+    expect(output).not.toContain('no window data')
+  })
+
+  it('renders Gemini per-model buckets by name', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { ctx } = contextFor(
+      stateWith({
+        gemini: provider({
+          provider: 'gemini',
+          buckets: [
+            { ...window(20, '5:00 PM'), name: 'gemini-2.5-pro' },
+            { ...window(5, '5:00 PM'), name: 'gemini-2.5-flash' }
+          ]
+        })
+      }),
+      new Map([['provider', 'gemini']])
+    )
+    await USAGE_HANDLERS.usage(ctx)
+    const output = log.mock.calls[0][0]
+    expect(output).toContain('gemini-2.5-pro 20% used (80% left), resets 5:00 PM')
+    expect(output).toContain('gemini-2.5-flash 5% used (95% left), resets 5:00 PM')
+    expect(output).not.toContain('no window data')
+  })
+
   it('surfaces an error status instead of a window', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const { ctx } = contextFor(
