@@ -1,3 +1,7 @@
+import {
+  AiVaultSearchRequestSchema,
+  AiVaultSearchStatusRequestSchema
+} from '../../shared/ai-vault-search-contract'
 import { ipcMain, type BrowserWindow } from 'electron'
 import type { Store } from '../persistence'
 import { SshConnectionStore } from '../ssh/ssh-connection-store'
@@ -12,6 +16,7 @@ import { isRuntimeOwnedSshTargetId } from '../../shared/execution-host'
 import { quitTeardownStartGate } from '../quit-teardown-start-gate'
 import {
   getSshTargetRegistryStore,
+  setSshConnectionManagerResolver,
   setSshTargetRegistryHandlers,
   setSshTargetRegistryStore
 } from '../ssh/ssh-target-registry'
@@ -23,6 +28,7 @@ export {
   connectRegisteredSshTarget,
   getActiveMultiplexer,
   getRegisteredSshState,
+  getSshConnectionManager,
   listRegisteredRemovedSshTargetLabels,
   listRegisteredSshTargets
 } from '../ssh/ssh-target-registry'
@@ -112,6 +118,27 @@ export function getActiveSshAiVaultHostInfos(): SshRelayAiVaultHostInfo[] {
   })
 }
 
+export async function requestActiveSshSessionSearch(
+  targetId: string,
+  method: string,
+  params: unknown
+): Promise<unknown> {
+  if (isRuntimeOwnedSshTargetId(targetId)) {
+    throw new Error('SSH target belongs to another runtime')
+  }
+  const session = activeSessions.get(targetId)
+  if (!session) {
+    throw new Error('SSH relay is not ready')
+  }
+  if (method === 'aiVault.searchSessions') {
+    return session.requestSessionSearch(method, AiVaultSearchRequestSchema.parse(params))
+  }
+  if (method === 'aiVault.searchStatus') {
+    return session.requestSessionSearch(method, AiVaultSearchStatusRequestSchema.parse(params))
+  }
+  throw new Error('Unknown session search method')
+}
+
 export async function requestActiveSshAiVaultSessionList(
   targetId: string,
   params: SshAiVaultRelayListParams,
@@ -159,7 +186,7 @@ export function registerSshHandlers(
   setPersistedStore(store)
   registerAdvertisedUrlRefresh(getCurrentMainWindow)
 
-  registerCredentialHandler(getCurrentMainWindow)
+  registerCredentialHandler()
 
   const callbacks = createSshConnectionCallbacks()
   if (connectionManager) {
@@ -184,6 +211,7 @@ export function registerSshHandlers(
   refreshActiveRelaySessions()
   registerPowerMonitorReconnect()
   registerSshBrowseHandler(() => connectionManager)
+  setSshConnectionManagerResolver(() => connectionManager)
 
   registerSshTargetCrudHandlers()
   registerSshConnectionHandlers()
@@ -193,10 +221,6 @@ export function registerSshHandlers(
     connectionManager: connectionManager!,
     sshStore: getSshTargetRegistryStore() as SshConnectionStore
   }
-}
-
-export function getSshConnectionManager(): SshConnectionManager | null {
-  return connectionManager
 }
 
 export async function resetSshHandlerStateForTests(): Promise<void> {
@@ -231,6 +255,7 @@ export async function resetSshHandlerStateForTests(): Promise<void> {
   await connectionManager?.disconnectAll()
   portForwardManager?.dispose()
   setConnectionManager(null)
+  setSshConnectionManagerResolver(null)
   setPortForwardManager(null)
   setSshTargetRegistryStore(null)
   setPersistedStore(null)
