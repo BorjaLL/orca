@@ -19,13 +19,14 @@ export function getDropIndicatorClasses(dropIndicator: DropIndicator): string {
 // background. `ring` is the documented token for "active selection halos"
 // (STYLEGUIDE.md), and unlike a `foreground`/`card` mix it's a fixed
 // per-theme gray, so it can't flip direction between light and dark (#16283).
-// z-10 keeps it above the bg lift and the unread amber wash. Horizontal inset
+// z-20 keeps it above the bg lift, the unread amber wash, and the tab
+// scrollbar overlay (#18526). Horizontal inset
 // is 0 (not -1px): negative insets on the last tab bleed into the strip's
 // scrollWidth, so clicking between active tabs flips the strip between "fits
 // exactly" and "overflows by 1px", which jitters every tab by 1px because the
 // browser preserves scrollLeft near the end.
 export const ACTIVE_TAB_INDICATOR_CLASSES =
-  'pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-ring z-10'
+  'pointer-events-none absolute inset-x-0 bottom-0 h-[2px] bg-ring z-20'
 
 // Why: `--tab-strip-active/inactive-surface` (main.css) swap which side gets
 // the foreground/card mix per theme so the active tab always reads lighter

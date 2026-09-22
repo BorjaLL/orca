@@ -1,5 +1,6 @@
 import { applyHostWorktreeTerminalSleepState } from '@/components/terminal-pane/pty-shutdown-exit-deferral'
 import { dispatchTerminalSideEffectBatch } from '@/components/terminal-pane/terminal-side-effect-facts-handler'
+import { emitAutomationsChangedWindowEvent } from '@/lib/automations-changed-window-event'
 import { applyNativeChatLaunchDraftResolved } from '@/runtime/native-chat-launch-draft-runtime-resolution'
 import { getRuntimeEnvironmentRevision } from '@/runtime/runtime-environment-revision'
 import {
@@ -95,6 +96,15 @@ export function registerRuntimeClientIpcBridge(
       runtimeProjectRefreshScheduler.request(environmentId)
       return
     }
+    if (event.type === 'automationsChanged') {
+      // Why: without the environment the subscriber cannot attribute the changed authority.
+      emitAutomationsChangedWindowEvent({
+        environmentId,
+        ...(event.selector ? { selector: event.selector } : {}),
+        ...(event.reason ? { reason: event.reason } : {})
+      })
+      return
+    }
     if (event.type === 'sshStateChanged') {
       applyRuntimeEnvironmentSshStateChanged(environmentId, event.targetId, event.state, generation)
       return
@@ -131,7 +141,7 @@ export function registerRuntimeClientIpcBridge(
       const sshGeneration = getEnvironmentSshStateGeneration(environmentId)
       const runtimeGeneration = getRuntimeEnvironmentConnectionGeneration(environmentId)
       const runtimeRevision = getRuntimeEnvironmentRevision(environmentId)
-      return subscribeRuntimeClientEvents(
+      const subscription = subscribeRuntimeClientEvents(
         environmentId,
         (event) => {
           if (
@@ -146,6 +156,13 @@ export function registerRuntimeClientIpcBridge(
         () => {
           invalidateRuntimeClientEventReplay({
             getSshStateReference: () => useAppStore.getState().sshStateByEnvironment,
+            refreshRuntimeStatus: () => {
+              const state = useAppStore.getState()
+              const snapshot = state.runtimeStatusByEnvironmentId.get(environmentId)?.snapshot
+              if (!snapshot || snapshot.transport === 'unknown') {
+                void state.refreshRuntimeEnvironmentStatus(environmentId)
+              }
+            },
             requestProjectRefresh: () => runtimeProjectRefreshScheduler.request(environmentId),
             markEnvironmentSshStateStale: () =>
               useAppStore.getState().markEnvironmentSshStateStale(environmentId),
@@ -155,6 +172,7 @@ export function registerRuntimeClientIpcBridge(
           })
         }
       )
+      return subscription
     },
     onEvent: handleRuntimeClientEvent
   })
